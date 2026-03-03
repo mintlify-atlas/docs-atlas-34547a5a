@@ -1,0 +1,404 @@
+---
+title: Elysia class
+description: Main Elysia server class API reference
+---
+
+The Elysia class is the main entry point for creating web servers with Elysia.js.
+
+## Constructor
+
+Create a new Elysia instance with optional configuration.
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia({
+  prefix: '/api',
+  name: 'my-app',
+  aot: true
+})
+```
+
+<ParamField path="config" type="ElysiaConfig" optional>
+  Configuration object for the Elysia instance
+  
+  <Expandable title="properties">
+    <ParamField path="prefix" type="string" optional>
+      Path prefix for all routes in this instance
+    </ParamField>
+    
+    <ParamField path="name" type="string" optional>
+      Name of the instance for debugging and plugin deduplication
+    </ParamField>
+    
+    <ParamField path="seed" type="unknown" optional>
+      Seed for generating checksum for plugin deduplication
+    </ParamField>
+    
+    <ParamField path="aot" type="boolean" optional default="true">
+      Enable Ahead of Time compilation for better performance
+    </ParamField>
+    
+    <ParamField path="strictPath" type="boolean" optional default="false">
+      Whether to tolerate trailing slash differences in paths
+    </ParamField>
+    
+    <ParamField path="precompile" type="boolean | object" optional>
+      Warm up Elysia before starting the server with AOT compilation
+    </ParamField>
+    
+    <ParamField path="nativeStaticResponse" type="boolean" optional default="true">
+      Enable Bun native static response optimization
+    </ParamField>
+    
+    <ParamField path="normalize" type="boolean | 'exactMirror' | 'typebox'" optional default="true">
+      Coerce values to defined types and filter unknown properties
+    </ParamField>
+    
+    <ParamField path="detail" type="DocumentDecoration" optional>
+      OpenAPI documentation metadata for Swagger
+    </ParamField>
+    
+    <ParamField path="tags" type="string[]" optional>
+      OpenAPI tags for route categorization
+    </ParamField>
+    
+    <ParamField path="cookie" type="CookieOptions" optional>
+      Global cookie configuration
+    </ParamField>
+    
+    <ParamField path="websocket" type="WebSocketHandler" optional>
+      Override WebSocket configuration
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## HTTP methods
+
+Register route handlers for HTTP methods.
+
+### get()
+
+Register a GET route handler.
+
+```typescript
+app.get('/users', () => ({ users: [] }))
+
+app.get('/users/:id', ({ params }) => ({ id: params.id }))
+```
+
+<ParamField path="path" type="string" required>
+  Route path with optional parameters using `:param` syntax
+</ParamField>
+
+<ParamField path="handler" type="Handler" required>
+  Function that handles the request and returns a response
+</ParamField>
+
+<ParamField path="hook" type="LocalHook" optional>
+  Route-specific lifecycle hooks and validation schemas
+</ParamField>
+
+### post()
+
+Register a POST route handler.
+
+```typescript
+app.post('/users', ({ body }) => {
+  return { success: true, user: body }
+}, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String()
+  })
+})
+```
+
+<ParamField path="path" type="string" required>
+  Route path
+</ParamField>
+
+<ParamField path="handler" type="Handler" required>
+  Request handler function
+</ParamField>
+
+<ParamField path="hook" type="LocalHook" optional>
+  Route-specific hooks and schemas
+</ParamField>
+
+### put()
+
+Register a PUT route handler.
+
+```typescript
+app.put('/users/:id', ({ params, body }) => {
+  return { id: params.id, ...body }
+})
+```
+
+### patch()
+
+Register a PATCH route handler.
+
+```typescript
+app.patch('/users/:id', ({ params, body }) => {
+  return { id: params.id, updated: body }
+})
+```
+
+### delete()
+
+Register a DELETE route handler.
+
+```typescript
+app.delete('/users/:id', ({ params }) => {
+  return { deleted: params.id }
+})
+```
+
+### all()
+
+Register a route handler for all HTTP methods.
+
+```typescript
+app.all('/health', () => 'OK')
+```
+
+## Server methods
+
+### listen()
+
+Start the server and listen on a port.
+
+```typescript
+app.listen(3000)
+
+app.listen({
+  port: 3000,
+  hostname: '0.0.0.0'
+})
+```
+
+<ParamField path="port" type="number | Serve" required>
+  Port number or Serve configuration object
+</ParamField>
+
+<ParamField path="callback" type="ListenCallback" optional>
+  Callback function executed when server starts
+</ParamField>
+
+### stop()
+
+Stop the server.
+
+```typescript
+app.stop()
+```
+
+## State and decoration
+
+### state()
+
+Define global mutable state accessible in all handlers.
+
+```typescript
+app
+  .state('counter', 0)
+  .get('/count', ({ store }) => store.counter)
+```
+
+<ParamField path="name" type="string" required>
+  State property name
+</ParamField>
+
+<ParamField path="value" type="any" required>
+  Initial state value
+</ParamField>
+
+### decorate()
+
+Add immutable properties to the context.
+
+```typescript
+app
+  .decorate('getDate', () => new Date())
+  .get('/date', ({ getDate }) => getDate())
+```
+
+<ParamField path="name" type="string" required>
+  Decorator property name
+</ParamField>
+
+<ParamField path="value" type="any" required>
+  Decorator value or function
+</ParamField>
+
+### derive()
+
+Derive new properties for each request with access to context.
+
+```typescript
+app
+  .derive(({ headers }) => {
+    return {
+      auth: parseAuth(headers.authorization)
+    }
+  })
+  .get('/profile', ({ auth }) => auth.user)
+```
+
+<ParamField path="handler" type="(context: Context) => Record<string, unknown>" required>
+  Function that derives new context properties
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Scope of the derived properties
+</ParamField>
+
+### model()
+
+Register schema models for reuse.
+
+```typescript
+app
+  .model({
+    user: t.Object({
+      id: t.String(),
+      name: t.String()
+    })
+  })
+  .post('/users', ({ body }) => body, {
+    body: 'user',
+    response: 'user'
+  })
+```
+
+<ParamField path="name" type="string | Record<string, Schema>" required>
+  Model name or object with multiple models
+</ParamField>
+
+<ParamField path="schema" type="Schema" optional>
+  Schema definition when name is a string
+</ParamField>
+
+## Plugin methods
+
+### use()
+
+Register a plugin.
+
+```typescript
+import { cors } from '@elysiajs/cors'
+
+app.use(cors())
+```
+
+<ParamField path="plugin" type="Elysia" required>
+  Elysia plugin instance to register
+</ParamField>
+
+### group()
+
+Group routes with a common prefix and shared hooks.
+
+```typescript
+app.group('/api', app => app
+  .get('/users', () => [])
+  .get('/posts', () => [])
+)
+```
+
+<ParamField path="prefix" type="string" required>
+  Common path prefix for grouped routes
+</ParamField>
+
+<ParamField path="run" type="(app: Elysia) => Elysia" required>
+  Function that registers routes on the group
+</ParamField>
+
+<ParamField path="schema" type="LocalHook" optional>
+  Shared hooks applied to all routes in the group
+</ParamField>
+
+### guard()
+
+Apply schema validation and hooks to multiple routes.
+
+```typescript
+app.guard({
+  headers: t.Object({
+    authorization: t.String()
+  })
+}, app => app
+  .get('/profile', ({ headers }) => headers)
+  .get('/settings', ({ headers }) => headers)
+)
+```
+
+<ParamField path="hook" type="LocalHook" required>
+  Hooks and schemas to apply
+</ParamField>
+
+<ParamField path="run" type="(app: Elysia) => Elysia" required>
+  Function that registers routes with the guard applied
+</ParamField>
+
+## Properties
+
+### store
+
+Access global mutable state defined via `state()`.
+
+```typescript
+const value = app.store.counter
+```
+
+### decorator
+
+Access decorators defined via `decorate()`.
+
+```typescript
+const fn = app.decorator.getDate
+```
+
+### routes
+
+Array of registered routes.
+
+```typescript
+const routes = app.routes
+// [{ method: 'GET', path: '/users', ... }]
+```
+
+### server
+
+The underlying server instance (Bun.Server or null if not started).
+
+```typescript
+const server = app.server
+```
+
+## Type parameters
+
+The Elysia class is generic with several type parameters for type safety:
+
+- `BasePath` - The base path prefix as a string literal
+- `Singleton` - Decorator, store, derive, and resolve types
+- `Definitions` - Registered type definitions and error types
+- `Metadata` - Schema, macro, and parser metadata
+- `Routes` - Registered route information
+- `Ephemeral` - Scoped lifecycle types
+- `Volatile` - Local lifecycle types
+
+```typescript
+type MyApp = Elysia<
+  '/api',
+  {
+    decorator: { db: Database }
+    store: { counter: number }
+    derive: {}
+    resolve: {}
+  },
+  // ... other type parameters
+>
+```

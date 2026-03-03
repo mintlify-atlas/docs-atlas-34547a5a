@@ -1,0 +1,173 @@
+---
+title: "Elysia"
+description: "Ergonomic framework for humans. TypeScript with end-to-end type safety, powered by Bun."
+---
+
+<img
+  className="block dark:hidden"
+  src="https://github.com/user-attachments/assets/8168188b-ffaf-444f-8d09-c516ce140824"
+  alt="Elysia Hero"
+/>
+<img
+  className="hidden dark:block"
+  src="https://github.com/user-attachments/assets/8168188b-ffaf-444f-8d09-c516ce140824"
+  alt="Elysia Hero"
+/>
+
+## What is Elysia?
+
+Elysia is a fast and friendly TypeScript web framework built on top of Bun. It's designed with developer experience in mind, offering end-to-end type safety, exceptional performance, and an ergonomic API that makes building web applications a joy.
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/', () => 'Hello Elysia')
+  .get('/json', () => ({ message: 'Hello World' }))
+  .listen(3000)
+
+console.log(`🦊 Elysia is running at http://localhost:3000`)
+```
+
+## Why Elysia?
+
+<CardGroup cols={2}>
+  <Card title="Blazing fast" icon="rocket">
+    Built on Bun, Elysia delivers exceptional performance - up to 18x faster than Express based on TechEmpower benchmarks.
+  </Card>
+  
+  <Card title="End-to-end type safety" icon="shield-check">
+    Full TypeScript support with automatic type inference across your entire application, from request to response.
+  </Card>
+  
+  <Card title="Developer experience" icon="heart">
+    Ergonomic API designed for humans. Write less code and get more done with intuitive patterns and helpful error messages.
+  </Card>
+  
+  <Card title="WinterCG compliant" icon="globe">
+    Follows web standards and supports multiple runtime adapters including Bun, Cloudflare Workers, and web standard environments.
+  </Card>
+  
+  <Card title="Rich ecosystem" icon="puzzle-piece">
+    Growing ecosystem of official and community plugins for validation, authentication, OpenAPI, WebSockets, and more.
+  </Card>
+  
+  <Card title="Built-in validation" icon="check-circle">
+    Powerful schema validation with TypeBox integration. Validate requests and responses with full type inference.
+  </Card>
+</CardGroup>
+
+## Key features
+
+### Type safety without the hassle
+
+Elysia provides end-to-end type safety with zero additional effort. Types flow automatically from your schema definitions through your handlers:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/user', ({ body }) => {
+    // body is fully typed as { name: string, age: number }
+    return `Created user ${body.name}, age ${body.age}`
+  }, {
+    body: t.Object({
+      name: t.String(),
+      age: t.Number()
+    })
+  })
+  .listen(3000)
+```
+
+### Plugin system
+
+Extend Elysia with reusable plugins that can add routes, state, decorators, and lifecycle hooks:
+
+```typescript
+const plugin = new Elysia()
+  .decorate('getDate', () => new Date())
+  .get('/plugin-route', () => 'From plugin')
+
+const app = new Elysia()
+  .use(plugin)
+  .get('/', ({ getDate }) => getDate())
+  .listen(3000)
+```
+
+### Guards and lifecycle hooks
+
+Apply validation and transformations to groups of routes with guards:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .guard(
+    {
+      query: t.Object({
+        name: t.String()
+      })
+    },
+    (app) => app
+      .get('/profile', ({ query }) => `Hello ${query.name}`)
+      .get('/settings', ({ query }) => `Settings for ${query.name}`)
+  )
+  .listen(3000)
+```
+
+### State management and derivation
+
+Manage application state and derive values with full type safety:
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .state('counter', 0)
+  .derive(({ store }) => ({
+    increase() {
+      store.counter++
+    }
+  }))
+  .get('/', ({ increase, store }) => {
+    increase()
+    return { counter: store.counter }
+  })
+  .listen(3000)
+```
+
+## Performance that matters
+
+Elysia is designed for speed. Built on Bun's blazing-fast runtime, Elysia delivers exceptional performance without sacrificing developer experience:
+
+- **18x faster than Express** based on TechEmpower benchmarks
+- **Zero-cost abstractions** - ergonomic APIs that compile to optimal code
+- **Minimal overhead** - lean core with optional features as plugins
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Elysia and set up your development environment.
+  </Card>
+  
+  <Card title="Quick start" icon="bolt" href="/quickstart">
+    Build your first Elysia application in minutes.
+  </Card>
+  
+  <Card title="Core concepts" icon="book" href="/concepts/routing">
+    Learn the fundamental concepts behind Elysia.
+  </Card>
+  
+  <Card title="Examples" icon="code" href="https://github.com/elysiajs/elysia/tree/main/example">
+    Explore real-world examples from the repository.
+  </Card>
+</CardGroup>
+
+## Community
+
+Join the Elysia community to get help, share your projects, and contribute:
+
+- [GitHub](https://github.com/elysiajs/elysia) - Source code and issue tracking
+- [Discord](https://discord.gg/eaFJ2KDJck) - Community chat and support
+- [Documentation](https://elysiajs.com) - Official documentation

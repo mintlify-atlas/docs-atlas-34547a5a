@@ -1,0 +1,196 @@
+---
+title: "Plugins"
+description: "Extend Elysia with modular plugins using .use()"
+---
+
+## Overview
+
+Elysia's plugin system allows you to create modular, reusable functionality that can be shared across applications. Plugins are simply Elysia instances that can be mounted onto other instances using the `.use()` method.
+
+## Basic plugin usage
+
+Create a plugin by instantiating a new Elysia instance and adding routes or functionality:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const plugin = new Elysia()
+  .get('/plugin', () => 'Hello from plugin')
+
+const app = new Elysia()
+  .use(plugin)
+  .listen(3000)
+```
+
+## Plugin with configuration
+
+Plugins can accept configuration parameters by wrapping them in a function:
+
+```typescript
+const myPlugin = (config: { prefix: string }) => 
+  new Elysia()
+    .get(`${config.prefix}/hello`, () => 'Hello')
+    .get(`${config.prefix}/world`, () => 'World')
+
+const app = new Elysia()
+  .use(myPlugin({ prefix: '/api' }))
+  .listen(3000)
+```
+
+## Plugin deduplication
+
+Elysia automatically deduplicates plugins using the `name` and `seed` properties to prevent duplicate registration:
+
+```typescript
+const plugin = new Elysia({
+  name: 'my-plugin',
+  seed: 'v1.0.0'
+})
+  .get('/route', () => 'Response')
+
+const app = new Elysia()
+  .use(plugin)
+  .use(plugin) // This will be ignored (deduplicated)
+  .listen(3000)
+```
+
+<Note>
+The `seed` parameter is useful for cache busting when you update a plugin. Change the seed value to force Elysia to re-register the plugin.
+</Note>
+
+## Scoped plugins
+
+Plugins can be scoped to apply their hooks and state only within a specific context:
+
+```typescript
+const scoped = new Elysia()
+  .state('version', 1)
+  .get('/scoped', ({ store }) => store.version)
+
+const app = new Elysia()
+  .use(scoped)
+  .get('/global', ({ store }) => store.version) // Error: version not available
+  .listen(3000)
+```
+
+## Lifecycle inheritance
+
+Plugins inherit lifecycle hooks from parent instances and can add their own:
+
+```typescript
+const plugin = new Elysia()
+  .onBeforeHandle(() => {
+    console.log('Plugin hook')
+  })
+  .get('/test', () => 'Test')
+
+const app = new Elysia()
+  .onRequest(() => {
+    console.log('App hook')
+  })
+  .use(plugin) // Both hooks will execute
+  .listen(3000)
+```
+
+## Async plugins
+
+Plugins can be loaded asynchronously using dynamic imports:
+
+```typescript
+const app = new Elysia()
+  .use(import('./plugin'))
+  .listen(3000)
+```
+
+## Prefix plugins
+
+Add a prefix to all routes in a plugin:
+
+```typescript
+const plugin = new Elysia({ prefix: '/v1' })
+  .get('/users', () => 'Users')     // Available at /v1/users
+  .get('/posts', () => 'Posts')     // Available at /v1/posts
+
+const app = new Elysia()
+  .use(plugin)
+  .listen(3000)
+```
+
+## Real-world example
+
+Here's a complete authentication plugin example:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+interface AuthConfig {
+  secret: string
+}
+
+const authPlugin = (config: AuthConfig) => 
+  new Elysia({ name: 'auth', seed: config })
+    .derive(({ headers }) => ({
+      userId: headers.authorization?.replace('Bearer ', '')
+    }))
+    .guard(
+      {
+        beforeHandle({ userId, error }) {
+          if (!userId) {
+            return error(401, 'Unauthorized')
+          }
+        }
+      },
+      (app) => app
+        .get('/profile', ({ userId }) => ({ userId }))
+        .get('/settings', ({ userId }) => ({ userId }))
+    )
+
+const app = new Elysia()
+  .use(authPlugin({ secret: 'my-secret' }))
+  .listen(3000)
+```
+
+## Plugin composition
+
+Plugins can compose other plugins to create complex functionality:
+
+```typescript
+const loggerPlugin = new Elysia({ name: 'logger' })
+  .onRequest(() => console.log('Request received'))
+
+const authPlugin = new Elysia({ name: 'auth' })
+  .derive(() => ({ userId: '123' }))
+
+const apiPlugin = new Elysia({ name: 'api' })
+  .use(loggerPlugin)
+  .use(authPlugin)
+  .get('/data', ({ userId }) => ({ userId }))
+
+const app = new Elysia()
+  .use(apiPlugin)
+  .listen(3000)
+```
+
+<Tip>
+Plugins are a powerful way to organize your application. Consider creating separate plugins for authentication, database access, logging, and other cross-cutting concerns.
+</Tip>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Use meaningful names">
+    Always provide a `name` for your plugins to enable deduplication and easier debugging.
+  </Accordion>
+  
+  <Accordion title="Version with seed">
+    Use the `seed` parameter to version your plugins and control cache invalidation.
+  </Accordion>
+  
+  <Accordion title="Keep plugins focused">
+    Each plugin should have a single responsibility. This makes them more reusable and easier to test.
+  </Accordion>
+  
+  <Accordion title="Document configuration">
+    Clearly document any configuration options your plugin accepts using TypeScript interfaces.
+  </Accordion>
+</AccordionGroup>

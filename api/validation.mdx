@@ -1,0 +1,372 @@
+---
+title: Validation
+description: API reference for Elysia's validation API and schema validators
+---
+
+Elysia provides runtime validation for request data using TypeBox schemas. Validation occurs automatically based on the schemas you define.
+
+## Validation targets
+
+You can validate different parts of the request:
+
+### body
+
+Validate request body (POST, PUT, PATCH).
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      name: t.String(),
+      email: t.String({ format: 'email' }),
+      age: t.Number({ minimum: 0 })
+    })
+  })
+```
+
+### query
+
+Validate query parameters.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/search', ({ query }) => query, {
+    query: t.Object({
+      q: t.String({ minLength: 1 }),
+      page: t.Numeric({ minimum: 1, default: 1 }),
+      limit: t.Numeric({ minimum: 1, maximum: 100, default: 10 })
+    })
+  })
+```
+
+### params
+
+Validate route parameters.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/user/:id', ({ params }) => params, {
+    params: t.Object({
+      id: t.String({ pattern: '^[0-9]+$' })
+    })
+  })
+```
+
+### headers
+
+Validate request headers.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/protected', ({ headers }) => 'Authorized', {
+    headers: t.Object({
+      authorization: t.String({ pattern: '^Bearer .+' })
+    })
+  })
+```
+
+### cookie
+
+Validate cookies.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/dashboard', ({ cookie }) => cookie, {
+    cookie: t.Object({
+      session: t.String()
+    })
+  })
+```
+
+### response
+
+Validate response data.
+
+<ResponseField name="200" type="TSchema">
+  Schema for successful response
+</ResponseField>
+
+<ResponseField name="400" type="TSchema">
+  Schema for bad request response
+</ResponseField>
+
+<ResponseField name="401" type="TSchema">
+  Schema for unauthorized response
+</ResponseField>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/user/:id', ({ params }) => {
+    // Return user data
+    return { id: params.id, name: 'John' }
+  }, {
+    params: t.Object({
+      id: t.String()
+    }),
+    response: {
+      200: t.Object({
+        id: t.String(),
+        name: t.String()
+      }),
+      404: t.Object({
+        error: t.String()
+      })
+    }
+  })
+```
+
+## Global validation
+
+Apply validation to all routes using `.guard()`.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .guard({
+    headers: t.Object({
+      authorization: t.String()
+    })
+  }, (app) => app
+    .get('/profile', () => 'Profile')
+    .get('/settings', () => 'Settings')
+  )
+```
+
+## Model registration
+
+Register reusable schemas with `.model()`.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .model({
+    user: t.Object({
+      name: t.String(),
+      email: t.String({ format: 'email' })
+    }),
+    error: t.Object({
+      message: t.String()
+    })
+  })
+  .post('/user', ({ body }) => body, {
+    body: 'user',
+    response: {
+      200: 'user',
+      400: 'error'
+    }
+  })
+```
+
+## Validation errors
+
+When validation fails, Elysia throws a `ValidationError` with details.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      name: t.String({ minLength: 3 })
+    })
+  })
+  .onError(({ code, error }) => {
+    if (code === 'VALIDATION') {
+      return {
+        message: 'Validation failed',
+        errors: error.all
+      }
+    }
+  })
+```
+
+## Transform hook
+
+Transform data before validation using the `transform` hook.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/user/:id', ({ params }) => params, {
+    params: t.Object({
+      id: t.Number()
+    }),
+    transform({ params }) {
+      params.id = +params.id
+    }
+  })
+```
+
+## Type coercion
+
+Elysia automatically coerces types for query parameters and headers.
+
+### Numeric coercion
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/page', ({ query }) => query.page, {
+    query: t.Object({
+      page: t.Numeric() // Coerces string to number
+    })
+  })
+// GET /page?page=5
+// query.page === 5 (number)
+```
+
+### Boolean coercion
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/filter', ({ query }) => query.active, {
+    query: t.Object({
+      active: t.BooleanString() // Coerces "true"/"false" to boolean
+    })
+  })
+// GET /filter?active=true
+// query.active === true (boolean)
+```
+
+### Date coercion
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/events', ({ query }) => query.date, {
+    query: t.Object({
+      date: t.Date() // Coerces ISO string to Date
+    })
+  })
+// GET /events?date=2024-01-01
+// query.date === Date object
+```
+
+### Array coercion
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/filter', ({ query }) => query.tags, {
+    query: t.Object({
+      tags: t.Array(t.String())
+    })
+  })
+// GET /filter?tags=a&tags=b&tags=c
+// query.tags === ["a", "b", "c"]
+```
+
+## Schema composition
+
+Combine schemas for complex validation.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const BaseUser = t.Object({
+  name: t.String(),
+  email: t.String({ format: 'email' })
+})
+
+const UserWithPassword = t.Intersect([
+  BaseUser,
+  t.Object({
+    password: t.String({ minLength: 8 })
+  })
+])
+
+new Elysia()
+  .post('/register', ({ body }) => body, {
+    body: UserWithPassword
+  })
+```
+
+## Custom validation
+
+Use `beforeHandle` for custom validation logic.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/user', ({ body, error }) => {
+    // Custom validation
+    if (body.age < 18) {
+      return error(400, 'Must be 18 or older')
+    }
+    return body
+  }, {
+    body: t.Object({
+      name: t.String(),
+      age: t.Number()
+    }),
+    beforeHandle({ body, error }) {
+      if (body.age < 18) {
+        return error(400, 'Must be 18 or older')
+      }
+    }
+  })
+```
+
+## Normalize and sanitize
+
+Elysia can normalize request data by removing extra properties.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia({
+  normalize: true // Enable normalization
+})
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      name: t.String(),
+      email: t.String()
+    })
+  })
+// POST { name: "John", email: "john@example.com", extra: "ignored" }
+// body === { name: "John", email: "john@example.com" }
+```
+
+## Validation scope
+
+Control validation scope with `as` parameter.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .guard({
+    as: 'global', // Apply to all routes
+    headers: t.Object({
+      'api-key': t.String()
+    })
+  })
+  .get('/public', () => 'Public')
+  .get('/protected', () => 'Protected')
+```
+
+Scope options:
+- `local` - Apply only to the current route (default)
+- `scoped` - Apply to current plugin and nested routes
+- `global` - Apply to all routes in the app

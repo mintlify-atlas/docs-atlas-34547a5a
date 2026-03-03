@@ -1,0 +1,229 @@
+---
+title: Routing
+description: Learn how to define routes and patterns in Elysia.js
+---
+
+Routing in Elysia is the process of mapping HTTP methods and URL patterns to handler functions. Elysia provides a simple, chainable API for defining routes.
+
+## Basic routing
+
+Define routes using HTTP method functions like `.get()`, `.post()`, `.put()`, `.delete()`, and more:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/', () => 'Hello World')
+  .post('/user', () => 'Create user')
+  .put('/user/:id', () => 'Update user')
+  .delete('/user/:id', () => 'Delete user')
+  .listen(3000)
+```
+
+## Route patterns
+
+### Static routes
+
+Static routes match exact paths:
+
+```typescript
+app
+  .get('/', () => 'Root')
+  .get('/about', () => 'About')
+  .get('/contact/info', () => 'Contact Info')
+```
+
+### Path parameters
+
+Capture dynamic segments using the `:param` syntax:
+
+```typescript
+app.get('/id/:id', ({ params: { id } }) => id)
+
+app.get('/user/:id/:name', ({ params: { id, name } }) => {
+  return `User ${name} with ID ${id}`
+})
+```
+
+<Note>
+Path parameters are automatically extracted and available in the `params` object of the context.
+</Note>
+
+### Optional parameters
+
+Make parameters optional using the `?` suffix:
+
+```typescript
+app.get('/id/:id?', ({ params: { id } }) => {
+  return id || 'No ID provided'
+})
+
+app.get('/user/:id?/:name?', ({ params }) => {
+  const { id = 'unknown', name = 'anonymous' } = params
+  return `User ${name} with ID ${id}`
+})
+```
+
+### Wildcard routes
+
+Match any path segment using the `*` wildcard:
+
+```typescript
+app.get('/public/*', () => 'Public files')
+
+app.get('/api/*/status', () => 'Status endpoint')
+```
+
+## HTTP methods
+
+Elysia supports all standard HTTP methods:
+
+<Tabs>
+  <Tab title="GET">
+    ```typescript
+    app.get('/users', () => getAllUsers())
+    ```
+    Used for retrieving resources.
+  </Tab>
+  <Tab title="POST">
+    ```typescript
+    app.post('/users', ({ body }) => createUser(body))
+    ```
+    Used for creating resources.
+  </Tab>
+  <Tab title="PUT">
+    ```typescript
+    app.put('/users/:id', ({ params, body }) => 
+      updateUser(params.id, body)
+    )
+    ```
+    Used for updating resources.
+  </Tab>
+  <Tab title="DELETE">
+    ```typescript
+    app.delete('/users/:id', ({ params }) => 
+      deleteUser(params.id)
+    )
+    ```
+    Used for deleting resources.
+  </Tab>
+  <Tab title="PATCH">
+    ```typescript
+    app.patch('/users/:id', ({ params, body }) => 
+      patchUser(params.id, body)
+    )
+    ```
+    Used for partial updates.
+  </Tab>
+</Tabs>
+
+## Path prefixes
+
+Set a prefix for all routes using the `prefix` configuration:
+
+```typescript
+const app = new Elysia({ 
+  prefix: '/api/v1' 
+})
+  .get('/users', () => 'Users') // /api/v1/users
+  .get('/posts', () => 'Posts') // /api/v1/posts
+```
+
+## Route grouping
+
+Group related routes with a common prefix:
+
+```typescript
+app.group('/api', (app) => 
+  app
+    .get('/users', () => 'Get users')
+    .post('/users', () => 'Create user')
+)
+
+app.group('/admin', (app) => 
+  app
+    .get('/dashboard', () => 'Dashboard')
+    .get('/settings', () => 'Settings')
+)
+```
+
+## Query strings
+
+Access query parameters through the `query` object:
+
+```typescript
+app.get('/', ({ query: { id } }) => {
+  return `ID: ${id}`
+})
+// GET /?id=123 → "ID: 123"
+
+app.get('/search', ({ query }) => {
+  const { q, limit = '10', offset = '0' } = query
+  return { query: q, limit, offset }
+})
+// GET /search?q=elysia&limit=20 → {"query":"elysia","limit":"20","offset":"0"}
+```
+
+## Strict path mode
+
+By default, Elysia ignores trailing slashes. Enable strict path matching:
+
+```typescript
+const app = new Elysia({ 
+  strictPath: true 
+})
+  .get('/users', () => 'Users') // Only matches /users
+  .get('/posts/', () => 'Posts') // Only matches /posts/
+```
+
+<Warning>
+With `strictPath: true`, `/users` and `/users/` are treated as different routes.
+</Warning>
+
+## Router history
+
+Access all registered routes:
+
+```typescript
+const app = new Elysia()
+  .get('/', () => 'Home')
+  .post('/users', () => 'Create')
+
+console.log(app.routes)
+// [
+//   { method: 'GET', path: '/', ... },
+//   { method: 'POST', path: '/users', ... }
+// ]
+```
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Use semantic HTTP methods">
+    Follow REST conventions:
+    - `GET` for reading
+    - `POST` for creating
+    - `PUT` for full updates
+    - `PATCH` for partial updates
+    - `DELETE` for removing
+  </Accordion>
+  
+  <Accordion title="Keep routes flat and simple">
+    Prefer `/users/:id/posts` over deeply nested routes like `/api/v1/users/:userId/posts/:postId/comments/:commentId`.
+  </Accordion>
+  
+  <Accordion title="Use route grouping for organization">
+    Group related routes together to improve code organization and maintainability.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Handlers" icon="code" href="/concepts/handlers">
+    Learn how to write request handlers
+  </Card>
+  <Card title="Context" icon="layer-group" href="/concepts/context">
+    Understand the context object
+  </Card>
+</CardGroup>

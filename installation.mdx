@@ -1,0 +1,271 @@
+---
+title: "Installation"
+description: "Get started with Elysia by installing Bun and creating your first project."
+---
+
+## Prerequisites
+
+Elysia runs on Bun, a fast all-in-one JavaScript runtime. Before installing Elysia, you'll need to install Bun.
+
+### System requirements
+
+- **macOS**, **Linux**, or **Windows** (via WSL)
+- Node.js is **not required** - Bun is a complete runtime
+
+## Install Bun
+
+<CodeGroup>
+
+```bash macOS / Linux
+curl -fsSL https://bun.sh/install | bash
+```
+
+```bash Windows (WSL)
+curl -fsSL https://bun.sh/install | bash
+```
+
+</CodeGroup>
+
+After installation, verify Bun is working:
+
+```bash
+bun --version
+```
+
+<Tip>
+  Bun includes a package manager, test runner, bundler, and runtime - everything you need to build with Elysia.
+</Tip>
+
+## Create a new project
+
+<Steps>
+  <Step title="Use the Elysia scaffolding tool">
+    The fastest way to get started is with the official scaffolding tool:
+
+    ```bash
+    bun create elysia app
+    ```
+
+    This creates a new directory called `app` with a basic Elysia project structure.
+  </Step>
+
+  <Step title="Navigate to your project">
+    ```bash
+    cd app
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Dependencies are automatically installed by `bun create`, but you can reinstall them if needed:
+
+    ```bash
+    bun install
+    ```
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    bun dev
+    ```
+
+    Your Elysia server is now running at `http://localhost:3000`!
+  </Step>
+</Steps>
+
+## Manual installation
+
+If you prefer to set up your project manually:
+
+<Steps>
+  <Step title="Create a new directory">
+    ```bash
+    mkdir my-elysia-app
+    cd my-elysia-app
+    ```
+  </Step>
+
+  <Step title="Initialize a new project">
+    ```bash
+    bun init -y
+    ```
+
+    This creates a `package.json` file and basic project structure.
+  </Step>
+
+  <Step title="Install Elysia">
+    ```bash
+    bun add elysia
+    ```
+  </Step>
+
+  <Step title="Create your first server">
+    Create a file named `index.ts`:
+
+    ```typescript index.ts
+    import { Elysia } from 'elysia'
+
+    const app = new Elysia()
+      .get('/', () => 'Hello Elysia')
+      .listen(3000)
+
+    console.log(
+      `🦊 Elysia is running at http://${app.server?.hostname}:${app.server?.port}`
+    )
+    ```
+  </Step>
+
+  <Step title="Run your server">
+    ```bash
+    bun run index.ts
+    ```
+
+    Visit `http://localhost:3000` to see your app in action!
+  </Step>
+</Steps>
+
+## Project structure
+
+A typical Elysia project structure looks like this:
+
+```
+my-elysia-app/
+├── src/
+│   └── index.ts       # Main application file
+├── package.json       # Project dependencies
+├── tsconfig.json      # TypeScript configuration
+└── README.md
+```
+
+<Note>
+  Elysia doesn't enforce a specific project structure. Organize your code however works best for your project.
+</Note>
+
+## Development setup
+
+### TypeScript configuration
+
+Elysia works best with TypeScript. Here's a recommended `tsconfig.json`:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "types": ["bun-types"]
+  }
+}
+```
+
+### Hot reload during development
+
+Bun supports hot reloading out of the box:
+
+```bash
+bun --watch src/index.ts
+```
+
+Your server will automatically restart when you save changes.
+
+## Installing plugins
+
+Elysia has a rich ecosystem of official and community plugins. Install them with Bun:
+
+```bash
+# OpenAPI documentation
+bun add @elysiajs/swagger
+
+# CORS support
+bun add @elysiajs/cors
+
+# JWT authentication
+bun add @elysiajs/jwt
+
+# Static file serving
+bun add @elysiajs/static
+```
+
+Example usage:
+
+```typescript
+import { Elysia } from 'elysia'
+import { swagger } from '@elysiajs/swagger'
+import { cors } from '@elysiajs/cors'
+
+const app = new Elysia()
+  .use(swagger())
+  .use(cors())
+  .get('/', () => 'Hello Elysia')
+  .listen(3000)
+```
+
+## Runtime adapters
+
+While Elysia is optimized for Bun, it also supports other runtimes through adapters:
+
+<CardGroup cols={2}>
+  <Card title="Bun (default)" icon="rabbit">
+    Native support with optimal performance.
+  </Card>
+  
+  <Card title="Cloudflare Workers" icon="cloud">
+    Deploy to edge with the Cloudflare Workers adapter.
+  </Card>
+  
+  <Card title="Web Standard" icon="globe">
+    Use the web standard adapter for maximum compatibility.
+  </Card>
+  
+  <Card title="Node.js" icon="node-js">
+    Limited support via web standard adapter (Bun recommended).
+  </Card>
+</CardGroup>
+
+<Warning>
+  For the best experience and performance, use Bun as your runtime. Other adapters may have limitations.
+</Warning>
+
+## Verify installation
+
+To verify everything is working correctly, create a simple test:
+
+```typescript test.ts
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/health', () => ({ status: 'ok', timestamp: Date.now() }))
+  .listen(3000)
+
+console.log('Server running at http://localhost:3000/health')
+```
+
+Run it with:
+
+```bash
+bun run test.ts
+```
+
+Visit `http://localhost:3000/health` - you should see a JSON response.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start guide" icon="bolt" href="/quickstart">
+    Build your first real application with Elysia.
+  </Card>
+  
+  <Card title="Core concepts" icon="book" href="/concepts/routing">
+    Learn about routing, handlers, and context.
+  </Card>
+  
+  <Card title="Validation" icon="check-circle" href="/concepts/validation">
+    Add schema validation to your routes.
+  </Card>
+  
+  <Card title="Plugins" icon="puzzle-piece" href="/features/plugins">
+    Extend Elysia with plugins.
+  </Card>
+</CardGroup>

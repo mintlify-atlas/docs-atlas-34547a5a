@@ -1,0 +1,482 @@
+---
+title: "WebSocket"
+description: "Real-time bidirectional communication with WebSocket support"
+---
+
+## Overview
+
+Elysia provides first-class support for WebSockets, enabling real-time bidirectional communication between clients and servers. WebSocket routes are defined using the `.ws()` method.
+
+## Basic WebSocket usage
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .ws('/ws', {
+    open(ws) {
+      console.log('Connection opened')
+    },
+    message(ws, message) {
+      console.log('Received:', message)
+      ws.send(message)
+    },
+    close(ws) {
+      console.log('Connection closed')
+    }
+  })
+  .listen(3000)
+```
+
+## WebSocket lifecycle hooks
+
+WebSocket connections have several lifecycle hooks:
+
+### open
+
+Called when a WebSocket connection is established:
+
+```typescript
+.ws('/ws', {
+  open(ws) {
+    console.log('Client connected:', ws.id)
+    ws.send('Welcome!')
+  }
+})
+```
+
+### message
+
+Called when a message is received from the client:
+
+```typescript
+.ws('/ws', {
+  message(ws, message) {
+    console.log('Received:', message)
+    // Echo back to sender
+    ws.send(message)
+  }
+})
+```
+
+### close
+
+Called when the connection is closed:
+
+```typescript
+.ws('/ws', {
+  close(ws, code, reason) {
+    console.log(`Connection closed: ${code} - ${reason}`)
+  }
+})
+```
+
+### drain
+
+Called when the socket is ready to receive more data:
+
+```typescript
+.ws('/ws', {
+  drain(ws) {
+    console.log('Socket ready for more data')
+  }
+})
+```
+
+### ping and pong
+
+Handle ping/pong frames for connection health checks:
+
+```typescript
+.ws('/ws', {
+  ping(ws, data) {
+    console.log('Received ping')
+  },
+  pong(ws, data) {
+    console.log('Received pong')
+  }
+})
+```
+
+## Complete example from source
+
+From `example/websocket.ts:3-25`:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .state('start', 'here')
+  .ws('/ws', {
+    open(ws) {
+      ws.subscribe('asdf')
+      console.log('Open Connection:', ws.id)
+    },
+    close(ws) {
+      console.log('Closed Connection:', ws.id)
+    },
+    message(ws, message) {
+      ws.publish('asdf', message)
+      ws.send(message)
+    }
+  })
+  .get('/publish/:publish', ({ params: { publish: text } }) => {
+    app.server!.publish('asdf', text)
+    return text
+  })
+  .listen(3000, (server) => {
+    console.log(`http://${server.hostname}:${server.port}`)
+  })
+```
+
+## Pub/Sub with topics
+
+WebSockets in Elysia support publish/subscribe patterns:
+
+### Subscribe to topics
+
+```typescript
+.ws('/chat', {
+  open(ws) {
+    // Subscribe to a room
+    ws.subscribe('room-1')
+  },
+  message(ws, message) {
+    // Publish to all subscribers of room-1
+    ws.publish('room-1', message)
+  }
+})
+```
+
+### Unsubscribe from topics
+
+```typescript
+.ws('/chat', {
+  message(ws, message) {
+    if (message === '/leave') {
+      ws.unsubscribe('room-1')
+      ws.send('Left room-1')
+    }
+  }
+})
+```
+
+### Check subscription status
+
+```typescript
+.ws('/chat', {
+  message(ws, message) {
+    if (ws.isSubscribed('room-1')) {
+      ws.send('You are in room-1')
+    }
+  }
+})
+```
+
+## Server-side publishing
+
+Publish messages from HTTP endpoints to WebSocket subscribers:
+
+```typescript
+const app = new Elysia()
+  .ws('/notifications', {
+    open(ws) {
+      ws.subscribe('notifications')
+    }
+  })
+  .post('/notify', ({ body }) => {
+    app.server!.publish('notifications', body.message)
+    return { success: true }
+  })
+  .listen(3000)
+```
+
+## Schema validation
+
+Validate WebSocket messages using schemas:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .ws('/chat', {
+    body: t.Object({
+      message: t.String(),
+      username: t.String()
+    }),
+    message(ws, message) {
+      // message is typed and validated
+      console.log(`${message.username}: ${message.message}`)
+      ws.send(message)
+    }
+  })
+  .listen(3000)
+```
+
+## Response validation
+
+Validate outgoing messages:
+
+```typescript
+const app = new Elysia()
+  .ws('/chat', {
+    response: t.Object({
+      type: t.String(),
+      data: t.Any()
+    }),
+    message(ws, message) {
+      // Response will be validated
+      ws.send({
+        type: 'message',
+        data: message
+      })
+    }
+  })
+  .listen(3000)
+```
+
+## Headers and query parameters
+
+Access request data during WebSocket upgrade:
+
+```typescript
+const app = new Elysia()
+  .ws('/chat', {
+    query: t.Object({
+      room: t.String()
+    }),
+    open(ws) {
+      // Access validated query params from ws.data
+      const room = ws.data.query.room
+      ws.subscribe(room)
+    },
+    message(ws, message) {
+      const room = ws.data.query.room
+      ws.publish(room, message)
+    }
+  })
+  .listen(3000)
+```
+
+## Authentication
+
+Implement WebSocket authentication using headers:
+
+```typescript
+const app = new Elysia()
+  .ws('/private', {
+    headers: t.Object({
+      authorization: t.String()
+    }),
+    beforeHandle({ headers, error }) {
+      const token = headers.authorization?.replace('Bearer ', '')
+      if (!isValidToken(token)) {
+        return error(401, 'Unauthorized')
+      }
+    },
+    open(ws) {
+      console.log('Authenticated connection')
+    }
+  })
+  .listen(3000)
+```
+
+## WebSocket configuration
+
+Configure WebSocket behavior globally:
+
+```typescript
+const app = new Elysia({
+  websocket: {
+    idleTimeout: 30,
+    maxPayloadLength: 16 * 1024 * 1024,
+    compression: true,
+    sendPingsAutomatically: true,
+    publishToSelf: false
+  }
+})
+  .ws('/ws', {
+    message(ws, message) {
+      ws.send(message)
+    }
+  })
+  .listen(3000)
+```
+
+## Context access
+
+Access context data including store and decorators:
+
+```typescript
+const app = new Elysia()
+  .state('connections', 0)
+  .decorate('logger', console)
+  .ws('/ws', {
+    open(ws) {
+      ws.data.store.connections++
+      ws.data.logger.log(`Total connections: ${ws.data.store.connections}`)
+    },
+    close(ws) {
+      ws.data.store.connections--
+    }
+  })
+  .listen(3000)
+```
+
+## Binary data
+
+Send and receive binary data:
+
+```typescript
+const app = new Elysia()
+  .ws('/binary', {
+    message(ws, message) {
+      if (Buffer.isBuffer(message)) {
+        console.log('Received binary data:', message.length, 'bytes')
+        ws.send(message)
+      }
+    }
+  })
+  .listen(3000)
+```
+
+## Real-world chat application
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+interface User {
+  id: string
+  username: string
+  room: string
+}
+
+const app = new Elysia()
+  .state('users', new Map<string, User>())
+  
+  .ws('/chat', {
+    query: t.Object({
+      room: t.String(),
+      username: t.String()
+    }),
+    body: t.Object({
+      type: t.Union([
+        t.Literal('message'),
+        t.Literal('typing')
+      ]),
+      content: t.String()
+    }),
+    
+    open(ws) {
+      const { room, username } = ws.data.query
+      const user: User = {
+        id: ws.id,
+        username,
+        room
+      }
+      
+      ws.data.store.users.set(ws.id, user)
+      ws.subscribe(room)
+      
+      // Notify others
+      ws.publish(room, {
+        type: 'join',
+        username,
+        timestamp: Date.now()
+      })
+    },
+    
+    message(ws, message) {
+      const user = ws.data.store.users.get(ws.id)!
+      
+      ws.publish(user.room, {
+        type: message.type,
+        username: user.username,
+        content: message.content,
+        timestamp: Date.now()
+      })
+    },
+    
+    close(ws) {
+      const user = ws.data.store.users.get(ws.id)
+      if (user) {
+        ws.publish(user.room, {
+          type: 'leave',
+          username: user.username,
+          timestamp: Date.now()
+        })
+        ws.data.store.users.delete(ws.id)
+      }
+    }
+  })
+  
+  .get('/rooms/:room/users', ({ params, store }) => {
+    const users = Array.from(store.users.values())
+      .filter(u => u.room === params.room)
+      .map(u => ({ id: u.id, username: u.username }))
+    
+    return { users }
+  })
+  
+  .listen(3000)
+```
+
+<Tip>
+WebSocket routes automatically handle the upgrade from HTTP to WebSocket protocol. You don't need to manually handle the handshake.
+</Tip>
+
+## Client connection example
+
+```javascript
+// Browser client
+const ws = new WebSocket('ws://localhost:3000/chat?room=general&username=Alice')
+
+ws.onopen = () => {
+  console.log('Connected')
+  ws.send(JSON.stringify({
+    type: 'message',
+    content: 'Hello everyone!'
+  }))
+}
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  console.log('Received:', data)
+}
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error)
+}
+
+ws.onclose = () => {
+  console.log('Disconnected')
+}
+```
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Use schema validation">
+    Always validate WebSocket messages to ensure data integrity and type safety.
+  </Accordion>
+  
+  <Accordion title="Handle cleanup in close">
+    Unsubscribe from topics and clean up resources in the close hook to prevent memory leaks.
+  </Accordion>
+  
+  <Accordion title="Implement authentication">
+    Validate authorization during the upgrade phase using headers or query parameters.
+  </Accordion>
+  
+  <Accordion title="Use topics for scalability">
+    Organize communication using topics/rooms rather than broadcasting to all connections.
+  </Accordion>
+  
+  <Accordion title="Monitor connection limits">
+    Track active connections and implement limits to prevent resource exhaustion.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+WebSocket connections consume server resources. Implement proper connection limits, idle timeouts, and cleanup mechanisms in production.
+</Warning>

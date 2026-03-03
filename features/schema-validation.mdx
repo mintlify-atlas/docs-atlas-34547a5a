@@ -1,0 +1,582 @@
+---
+title: "Schema validation"
+description: "Type-safe request and response validation with TypeBox, Zod, and Valibot"
+---
+
+## Overview
+
+Elysia provides comprehensive schema validation for requests and responses using TypeBox by default, with support for popular validation libraries like Zod and Valibot through the Standard Schema specification.
+
+## TypeBox validation
+
+Elysia uses TypeBox for built-in schema validation with full TypeScript type inference.
+
+### Basic validation
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      username: t.String(),
+      password: t.String()
+    })
+  })
+  .listen(3000)
+```
+
+### Validating different parts of the request
+
+```typescript
+const app = new Elysia()
+  .get('/user/:id', ({ params, query, headers }) => ({
+    id: params.id,
+    page: query.page,
+    auth: headers.authorization
+  }), {
+    params: t.Object({
+      id: t.String()
+    }),
+    query: t.Object({
+      page: t.Number({ minimum: 1 })
+    }),
+    headers: t.Object({
+      authorization: t.String()
+    })
+  })
+  .listen(3000)
+```
+
+## Schema types
+
+TypeBox provides a comprehensive set of schema types:
+
+### Primitive types
+
+```typescript
+t.String()              // string
+t.Number()              // number
+t.Boolean()             // boolean
+t.Null()                // null
+t.Undefined()           // undefined
+t.Any()                 // any
+```
+
+### String constraints
+
+```typescript
+t.String({ minLength: 3 })
+t.String({ maxLength: 50 })
+t.String({ pattern: '^[a-zA-Z]+$' })
+t.String({ format: 'email' })
+t.String({ format: 'uri' })
+t.String({ format: 'uuid' })
+t.String({ format: 'date-time' })
+```
+
+### Number constraints
+
+```typescript
+t.Number({ minimum: 0 })
+t.Number({ maximum: 100 })
+t.Number({ exclusiveMinimum: 0 })
+t.Number({ exclusiveMaximum: 100 })
+t.Number({ multipleOf: 5 })
+t.Integer()                        // integer only
+```
+
+### Complex types
+
+```typescript
+// Object
+t.Object({
+  name: t.String(),
+  age: t.Number()
+})
+
+// Array
+t.Array(t.String())
+t.Array(t.Number(), { minItems: 1, maxItems: 10 })
+
+// Union
+t.Union([
+  t.String(),
+  t.Number()
+])
+
+// Literal
+t.Literal('admin')
+t.Literal(42)
+t.Literal(true)
+
+// Enum
+t.Union([
+  t.Literal('pending'),
+  t.Literal('approved'),
+  t.Literal('rejected')
+])
+
+// Optional
+t.Optional(t.String())
+
+// Nullable
+t.Union([t.String(), t.Null()])
+```
+
+## Example from source
+
+From `example/schema.ts:3-61`:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .model({
+    name: t.Object({
+      name: t.String()
+    }),
+    b: t.Object({
+      response: t.Number()
+    }),
+    authorization: t.Object({
+      authorization: t.String()
+    })
+  })
+  .get('/', () => 'hi')
+  .post('/', ({ body, query }) => body.id, {
+    body: t.Object({
+      id: t.Number(),
+      username: t.String(),
+      profile: t.Object({
+        name: t.String()
+      })
+    })
+  })
+  .get('/query/:id', ({ query: { name }, params }) => name, {
+    query: t.Object({
+      name: t.String()
+    }),
+    params: t.Object({
+      id: t.String()
+    }),
+    response: {
+      200: t.String(),
+      300: t.Object({
+        error: t.String()
+      })
+    }
+  })
+  .guard(
+    {
+      headers: 'authorization'
+    },
+    (app) =>
+      app
+        .derive(({ headers }) => ({
+          userId: headers.authorization
+        }))
+        .get('/', ({ userId }) => 'A')
+        .post('/id/:id', ({ query, body, params, userId }) => body, {
+          params: t.Object({
+            id: t.Number()
+          }),
+          transform({ params }) {
+            params.id = +params.id
+          }
+        })
+  )
+  .listen(3000)
+```
+
+## Reusable schemas with models
+
+Define reusable schemas using `.model()`:
+
+```typescript
+const app = new Elysia()
+  .model({
+    user: t.Object({
+      username: t.String({ minLength: 3 }),
+      email: t.String({ format: 'email' }),
+      age: t.Number({ minimum: 18 })
+    }),
+    post: t.Object({
+      title: t.String(),
+      content: t.String(),
+      tags: t.Array(t.String())
+    })
+  })
+  .post('/user', ({ body }) => body, {
+    body: 'user'
+  })
+  .post('/post', ({ body }) => body, {
+    body: 'post'
+  })
+  .listen(3000)
+```
+
+## Response validation
+
+Validate responses by status code:
+
+```typescript
+const app = new Elysia()
+  .get('/user/:id', ({ params, error }) => {
+    const user = findUser(params.id)
+    
+    if (!user) {
+      return error(404, { error: 'User not found' })
+    }
+    
+    return user
+  }, {
+    response: {
+      200: t.Object({
+        id: t.String(),
+        name: t.String(),
+        email: t.String()
+      }),
+      404: t.Object({
+        error: t.String()
+      })
+    }
+  })
+  .listen(3000)
+```
+
+## Cookie validation
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .get('/session', ({ cookie }) => {
+    return {
+      sessionId: cookie.sessionId.value
+    }
+  }, {
+    cookie: t.Cookie({
+      sessionId: t.String()
+    })
+  })
+  .listen(3000)
+```
+
+## Transform and coercion
+
+Transform values during validation:
+
+```typescript
+const app = new Elysia()
+  .get('/user/:id', ({ params }) => params.id, {
+    params: t.Object({
+      id: t.Number()
+    }),
+    transform({ params }) {
+      // Transform string to number
+      params.id = +params.id
+    }
+  })
+  .listen(3000)
+```
+
+## Using Zod
+
+Elysia supports Zod through the Standard Schema specification:
+
+```typescript
+import { Elysia } from 'elysia'
+import { z } from 'zod'
+
+const UserSchema = z.object({
+  username: z.string().min(3),
+  email: z.string().email(),
+  age: z.number().min(18)
+})
+
+const app = new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: UserSchema
+  })
+  .listen(3000)
+```
+
+## Using Valibot
+
+Elysia also supports Valibot:
+
+```typescript
+import { Elysia } from 'elysia'
+import * as v from 'valibot'
+
+const UserSchema = v.object({
+  username: v.string([v.minLength(3)]),
+  email: v.string([v.email()]),
+  age: v.number([v.minValue(18)])
+})
+
+const app = new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: UserSchema
+  })
+  .listen(3000)
+```
+
+## Custom error messages
+
+Provide custom validation error messages:
+
+```typescript
+const app = new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      username: t.String({
+        minLength: 3,
+        error: 'Username must be at least 3 characters long'
+      }),
+      email: t.String({
+        format: 'email',
+        error: 'Please provide a valid email address'
+      }),
+      age: t.Number({
+        minimum: 18,
+        error: 'You must be at least 18 years old'
+      })
+    })
+  })
+  .listen(3000)
+```
+
+## File validation
+
+Validate file uploads:
+
+```typescript
+const app = new Elysia()
+  .post('/upload', ({ body }) => {
+    return {
+      name: body.file.name,
+      size: body.file.size
+    }
+  }, {
+    body: t.Object({
+      file: t.File({
+        maxSize: '5m',
+        type: ['image/jpeg', 'image/png']
+      }),
+      description: t.Optional(t.String())
+    })
+  })
+  .listen(3000)
+```
+
+## Multiple files
+
+```typescript
+const app = new Elysia()
+  .post('/upload-multiple', ({ body }) => {
+    return {
+      count: body.files.length,
+      files: body.files.map(f => f.name)
+    }
+  }, {
+    body: t.Object({
+      files: t.Files({
+        minItems: 1,
+        maxItems: 5,
+        maxSize: '10m'
+      })
+    })
+  })
+  .listen(3000)
+```
+
+## Nested validation
+
+Validate deeply nested objects:
+
+```typescript
+const app = new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      personal: t.Object({
+        firstName: t.String(),
+        lastName: t.String(),
+        age: t.Number()
+      }),
+      contact: t.Object({
+        email: t.String({ format: 'email' }),
+        phone: t.String({ pattern: '^\\+?[1-9]\\d{1,14}$' })
+      }),
+      address: t.Object({
+        street: t.String(),
+        city: t.String(),
+        zipCode: t.String(),
+        country: t.String()
+      })
+    })
+  })
+  .listen(3000)
+```
+
+## Array validation with items
+
+```typescript
+const app = new Elysia()
+  .post('/users', ({ body }) => body, {
+    body: t.Object({
+      users: t.Array(
+        t.Object({
+          name: t.String(),
+          email: t.String({ format: 'email' })
+        }),
+        {
+          minItems: 1,
+          maxItems: 100
+        }
+      )
+    })
+  })
+  .listen(3000)
+```
+
+## Conditional validation
+
+Use unions for conditional schemas:
+
+```typescript
+const app = new Elysia()
+  .post('/payment', ({ body }) => body, {
+    body: t.Union([
+      t.Object({
+        method: t.Literal('card'),
+        cardNumber: t.String(),
+        cvv: t.String()
+      }),
+      t.Object({
+        method: t.Literal('paypal'),
+        email: t.String({ format: 'email' })
+      }),
+      t.Object({
+        method: t.Literal('crypto'),
+        walletAddress: t.String()
+      })
+    ])
+  })
+  .listen(3000)
+```
+
+## Complete validation example
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .model({
+    address: t.Object({
+      street: t.String(),
+      city: t.String(),
+      zipCode: t.String({ pattern: '^\\d{5}$' }),
+      country: t.String()
+    }),
+    user: t.Object({
+      username: t.String({ minLength: 3, maxLength: 20 }),
+      email: t.String({ format: 'email' }),
+      age: t.Number({ minimum: 18, maximum: 120 }),
+      role: t.Union([
+        t.Literal('user'),
+        t.Literal('admin'),
+        t.Literal('moderator')
+      ]),
+      address: t.Ref('address'),
+      tags: t.Optional(
+        t.Array(t.String(), { maxItems: 10 })
+      )
+    })
+  })
+  
+  .post('/users', ({ body }) => {
+    return {
+      success: true,
+      user: body
+    }
+  }, {
+    body: 'user',
+    response: {
+      200: t.Object({
+        success: t.Boolean(),
+        user: t.Ref('user')
+      }),
+      400: t.Object({
+        error: t.String()
+      })
+    }
+  })
+  
+  .get('/users/:id', ({ params, query, error }) => {
+    const user = findUser(params.id)
+    
+    if (!user) {
+      return error(404, { error: 'User not found' })
+    }
+    
+    return {
+      user,
+      page: query.page,
+      limit: query.limit
+    }
+  }, {
+    params: t.Object({
+      id: t.String({ format: 'uuid' })
+    }),
+    query: t.Object({
+      page: t.Number({ minimum: 1, default: 1 }),
+      limit: t.Number({ minimum: 1, maximum: 100, default: 20 })
+    }),
+    response: {
+      200: t.Object({
+        user: t.Ref('user'),
+        page: t.Number(),
+        limit: t.Number()
+      }),
+      404: t.Object({
+        error: t.String()
+      })
+    }
+  })
+  
+  .listen(3000)
+```
+
+<Tip>
+Elysia automatically infers TypeScript types from your schemas, providing full type safety throughout your application without writing separate type definitions.
+</Tip>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Use models for reusability">
+    Define common schemas using `.model()` to avoid repetition and maintain consistency.
+  </Accordion>
+  
+  <Accordion title="Validate responses">
+    Always validate response schemas to ensure your API returns consistent, type-safe data.
+  </Accordion>
+  
+  <Accordion title="Provide helpful error messages">
+    Use custom error messages to guide users when validation fails.
+  </Accordion>
+  
+  <Accordion title="Keep schemas strict">
+    Be specific with constraints (minLength, maximum, format) to catch issues early.
+  </Accordion>
+  
+  <Accordion title="Use the right tool">
+    Choose TypeBox for performance, Zod for rich validation features, or Valibot for bundle size optimization.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+Validation happens automatically before your route handler executes. Failed validation returns a 422 status with error details.
+</Warning>

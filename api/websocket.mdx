@@ -1,0 +1,374 @@
+---
+title: WebSocket API
+description: WebSocket connection handling and messaging API for Elysia
+---
+
+Elysia provides type-safe WebSocket support with built-in validation and pub/sub capabilities.
+
+## ElysiaWS
+
+The main WebSocket class that wraps the underlying server WebSocket connection.
+
+### Constructor
+
+```typescript
+new ElysiaWS<Context, Route>(
+  raw: ServerWebSocket,
+  data: Context,
+  body?: Route['body']
+)
+```
+
+<ParamField path="raw" type="ServerWebSocket" required>
+  The underlying server WebSocket connection
+</ParamField>
+
+<ParamField path="data" type="Context" required>
+  Context data excluding body, error, status, and redirect
+</ParamField>
+
+<ParamField path="body" type="Route['body']">
+  The message body for typed WebSocket routes
+</ParamField>
+
+### Methods
+
+#### send
+
+Sends a message to the client with automatic validation and serialization.
+
+```typescript
+ws.send(
+  data: Response | BufferSource,
+  compress?: boolean
+): ServerWebSocketSendStatus
+```
+
+<ParamField path="data" type="Response | BufferSource" required>
+  The data to send. Objects are automatically JSON stringified
+</ParamField>
+
+<ParamField path="compress" type="boolean" default={false}>
+  Should the data be compressed? Ignored if client doesn't support compression
+</ParamField>
+
+<ResponseField name="return" type="number">
+  - `0`: Message was dropped
+  - `-1`: Backpressure applied
+  - `>0`: Number of bytes sent
+</ResponseField>
+
+```typescript
+ws.send("Hello!")
+ws.send("Compress this.", true)
+ws.send(new Uint8Array([1, 2, 3, 4]))
+```
+
+#### ping
+
+Sends a ping with optional data.
+
+```typescript
+ws.ping(
+  data?: Response | BufferSource
+): ServerWebSocketSendStatus
+```
+
+<ParamField path="data" type="Response | BufferSource">
+  The data to send with the ping
+</ParamField>
+
+#### pong
+
+Sends a pong with optional data.
+
+```typescript
+ws.pong(
+  data?: Response | BufferSource
+): ServerWebSocketSendStatus
+```
+
+<ParamField path="data" type="Response | BufferSource">
+  The data to send with the pong
+</ParamField>
+
+#### publish
+
+Sends a message to all subscribers of a topic.
+
+```typescript
+ws.publish(
+  topic: string,
+  data: Response | BufferSource,
+  compress?: boolean
+): ServerWebSocketSendStatus
+```
+
+<ParamField path="topic" type="string" required>
+  The topic name to publish to
+</ParamField>
+
+<ParamField path="data" type="Response | BufferSource" required>
+  The data to send to subscribers
+</ParamField>
+
+<ParamField path="compress" type="boolean" default={false}>
+  Should the data be compressed?
+</ParamField>
+
+```typescript
+ws.publish("chat", "Hello!")
+ws.publish("chat", "Compress this.", true)
+ws.publish("chat", new Uint8Array([1, 2, 3, 4]))
+```
+
+#### subscribe
+
+Subscribes the connection to a topic.
+
+```typescript
+ws.subscribe(topic: string): void
+```
+
+<ParamField path="topic" type="string" required>
+  The topic name to subscribe to
+</ParamField>
+
+#### unsubscribe
+
+Unsubscribes the connection from a topic.
+
+```typescript
+ws.unsubscribe(topic: string): void
+```
+
+<ParamField path="topic" type="string" required>
+  The topic name to unsubscribe from
+</ParamField>
+
+#### isSubscribed
+
+Checks if the connection is subscribed to a topic.
+
+```typescript
+ws.isSubscribed(topic: string): boolean
+```
+
+<ParamField path="topic" type="string" required>
+  The topic name to check
+</ParamField>
+
+<ResponseField name="return" type="boolean">
+  `true` if subscribed, `false` otherwise
+</ResponseField>
+
+#### close
+
+Closes the WebSocket connection gracefully.
+
+```typescript
+ws.close(code?: number, reason?: string): void
+```
+
+<ParamField path="code" type="number" default={1000}>
+  Close code:
+  - `1000`: Normal closure
+  - `1009`: Message too big
+  - `1011`: Server error
+  - `1012`: Server restarting
+  - `1013`: Server busy/rate-limited
+  - `4000-4999`: Application codes
+</ParamField>
+
+<ParamField path="reason" type="string">
+  Human-readable close reason
+</ParamField>
+
+#### terminate
+
+Abruptly closes the connection.
+
+```typescript
+ws.terminate(): void
+```
+
+### Properties
+
+<ResponseField name="id" type="string">
+  Unique identifier for the WebSocket connection
+</ResponseField>
+
+<ResponseField name="data" type="Context">
+  Context data associated with the connection
+</ResponseField>
+
+<ResponseField name="body" type="Route['body']">
+  The typed message body
+</ResponseField>
+
+<ResponseField name="readyState" type="0 | 1 | 2 | 3">
+  Connection state:
+  - `0`: CONNECTING
+  - `1`: OPEN
+  - `2`: CLOSING
+  - `3`: CLOSED
+</ResponseField>
+
+<ResponseField name="remoteAddress" type="string">
+  IP address of the client
+</ResponseField>
+
+<ResponseField name="binaryType" type="'nodebuffer' | 'arraybuffer' | 'uint8array'">
+  Format for binary data
+</ResponseField>
+
+<ResponseField name="subscriptions" type="string[]">
+  Array of topics the connection is subscribed to
+</ResponseField>
+
+## WebSocket handler
+
+Define WebSocket event handlers with type safety.
+
+### Event handlers
+
+```typescript
+app.ws('/chat', {
+  open(ws) {
+    // Connection opened
+  },
+  message(ws, message) {
+    // Message received
+  },
+  close(ws, code, reason) {
+    // Connection closed
+  },
+  drain(ws) {
+    // Ready for more data after backpressure
+  },
+  ping(ws, data) {
+    // Ping received
+  },
+  pong(ws, data) {
+    // Pong received
+  }
+})
+```
+
+<ParamField path="open" type="(ws: ElysiaWS) => void | Promise<void>">
+  Called when a connection is opened
+</ParamField>
+
+<ParamField path="message" type="(ws: ElysiaWS, message: Body) => void | Promise<void>">
+  Called when a message is received. Can return a generator for streaming responses
+</ParamField>
+
+<ParamField path="close" type="(ws: ElysiaWS, code: number, reason: string) => void | Promise<void>">
+  Called when a connection is closed
+</ParamField>
+
+<ParamField path="drain" type="(ws: ElysiaWS) => void | Promise<void>">
+  Called when the connection is ready to receive more data after backpressure
+</ParamField>
+
+<ParamField path="ping" type="(ws: ElysiaWS, data: Buffer) => void | Promise<void>">
+  Called when a ping is received
+</ParamField>
+
+<ParamField path="pong" type="(ws: ElysiaWS, data: Buffer) => void | Promise<void>">
+  Called when a pong is received
+</ParamField>
+
+## Configuration
+
+Configure WebSocket behavior in your handler.
+
+```typescript
+app.ws('/chat', {
+  message(ws, message) {
+    ws.send(message)
+  },
+  
+  // Configuration
+  maxPayloadLength: 1024 * 1024 * 16, // 16 MB
+  backpressureLimit: 1024 * 1024 * 16, // 16 MB
+  closeOnBackpressureLimit: false,
+  idleTimeout: 120, // 2 minutes
+  publishToSelf: false,
+  sendPings: true,
+  perMessageDeflate: true
+})
+```
+
+<ParamField path="maxPayloadLength" type="number" default={16777216}>
+  Maximum message size in bytes (16 MB default)
+</ParamField>
+
+<ParamField path="backpressureLimit" type="number" default={16777216}>
+  Maximum buffered bytes per connection (16 MB default)
+</ParamField>
+
+<ParamField path="closeOnBackpressureLimit" type="boolean" default={false}>
+  Close connection if backpressure limit is reached
+</ParamField>
+
+<ParamField path="idleTimeout" type="number" default={120}>
+  Seconds before timing out idle connections (2 minutes default)
+</ParamField>
+
+<ParamField path="publishToSelf" type="boolean" default={false}>
+  Should `publish()` send to the publisher if subscribed?
+</ParamField>
+
+<ParamField path="sendPings" type="boolean" default={true}>
+  Automatically send and respond to pings
+</ParamField>
+
+<ParamField path="perMessageDeflate" type="boolean | object" default={false}>
+  Enable compression for messages. Can be a boolean or configuration object
+</ParamField>
+
+## Complete example
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .ws('/chat', {
+    body: t.Object({
+      message: t.String(),
+      user: t.String()
+    }),
+    response: t.Object({
+      message: t.String(),
+      user: t.String(),
+      timestamp: t.Number()
+    }),
+    
+    open(ws) {
+      ws.subscribe('chat-room')
+      ws.publish('chat-room', {
+        message: `${ws.data.user} joined`,
+        user: 'System',
+        timestamp: Date.now()
+      })
+    },
+    
+    message(ws, { message, user }) {
+      ws.publish('chat-room', {
+        message,
+        user,
+        timestamp: Date.now()
+      })
+    },
+    
+    close(ws, code, reason) {
+      ws.publish('chat-room', {
+        message: `${ws.data.user} left`,
+        user: 'System',
+        timestamp: Date.now()
+      })
+    }
+  })
+  .listen(3000)
+```

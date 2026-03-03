@@ -1,0 +1,429 @@
+---
+title: Schema types
+description: API reference for Elysia's schema type system (t.*) powered by TypeBox
+---
+
+Elysia uses TypeBox for runtime validation and type inference. The `t` namespace provides schema builders for validating request and response data.
+
+## Primitive types
+
+### t.String
+
+String type with optional constraints.
+
+<ParamField path="options.minLength" type="number">
+  Minimum string length
+</ParamField>
+
+<ParamField path="options.maxLength" type="number">
+  Maximum string length
+</ParamField>
+
+<ParamField path="options.pattern" type="string">
+  Regular expression pattern
+</ParamField>
+
+<ParamField path="options.format" type="string">
+  String format (e.g., 'email', 'uri', 'date-time')
+</ParamField>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      name: t.String({ minLength: 1, maxLength: 100 }),
+      email: t.String({ format: 'email' }),
+      website: t.String({ format: 'uri' })
+    })
+  })
+```
+
+### t.Number
+
+Numeric type with optional constraints.
+
+<ParamField path="options.minimum" type="number">
+  Minimum value (inclusive)
+</ParamField>
+
+<ParamField path="options.maximum" type="number">
+  Maximum value (inclusive)
+</ParamField>
+
+<ParamField path="options.exclusiveMinimum" type="number">
+  Minimum value (exclusive)
+</ParamField>
+
+<ParamField path="options.exclusiveMaximum" type="number">
+  Maximum value (exclusive)
+</ParamField>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/product', ({ body }) => body, {
+    body: t.Object({
+      price: t.Number({ minimum: 0 }),
+      quantity: t.Integer({ minimum: 1, maximum: 100 })
+    })
+  })
+```
+
+### t.Integer
+
+Integer type (extends Number).
+
+```typescript
+t.Integer({ minimum: 0, maximum: 100 })
+```
+
+### t.Boolean
+
+Boolean type.
+
+```typescript
+t.Boolean()
+```
+
+### t.Null
+
+Null type.
+
+```typescript
+t.Null()
+```
+
+### t.Undefined
+
+Undefined type.
+
+```typescript
+t.Undefined()
+```
+
+## Elysia-specific types
+
+### t.Numeric
+
+Accepts string or number and coerces to number. Useful for query parameters.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/page', ({ query }) => query.page, {
+    query: t.Object({
+      page: t.Numeric({ minimum: 1 })
+    })
+  })
+```
+
+### t.BooleanString
+
+Accepts string or boolean and coerces to boolean.
+
+```typescript
+t.Object({
+  active: t.BooleanString()
+})
+// Accepts: "true", "false", true, false
+// Returns: true or false
+```
+
+### t.Date
+
+Date type that accepts ISO strings, timestamps, or Date objects.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/event', ({ body }) => body, {
+    body: t.Object({
+      startDate: t.Date(),
+      endDate: t.Date({ minimum: new Date('2024-01-01') })
+    })
+  })
+```
+
+### t.File
+
+File upload type.
+
+<ParamField path="options.type" type="string | string[]">
+  Accepted MIME types or file extensions
+</ParamField>
+
+<ParamField path="options.minSize" type="number">
+  Minimum file size in bytes
+</ParamField>
+
+<ParamField path="options.maxSize" type="number">
+  Maximum file size in bytes
+</ParamField>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/upload', ({ body }) => body, {
+    body: t.Object({
+      image: t.File({
+        type: ['image/jpeg', 'image/png'],
+        maxSize: 5 * 1024 * 1024 // 5MB
+      })
+    })
+  })
+```
+
+### t.Files
+
+Multiple file uploads.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/upload', ({ body }) => body, {
+    body: t.Object({
+      images: t.Files({
+        type: 'image',
+        minItems: 1,
+        maxItems: 5
+      })
+    })
+  })
+```
+
+## Composite types
+
+### t.Object
+
+Object type with properties.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      name: t.String(),
+      age: t.Number(),
+      profile: t.Object({
+        bio: t.String(),
+        website: t.Optional(t.String())
+      })
+    })
+  })
+```
+
+### t.Array
+
+Array type.
+
+<ParamField path="items" type="TSchema" required>
+  Schema for array items
+</ParamField>
+
+<ParamField path="options.minItems" type="number">
+  Minimum array length
+</ParamField>
+
+<ParamField path="options.maxItems" type="number">
+  Maximum array length
+</ParamField>
+
+```typescript
+t.Array(t.String(), { minItems: 1, maxItems: 10 })
+```
+
+### t.Tuple
+
+Fixed-length array with typed positions.
+
+```typescript
+t.Tuple([t.String(), t.Number(), t.Boolean()])
+// Matches: ["hello", 42, true]
+```
+
+### t.Union
+
+Union of multiple types (OR).
+
+```typescript
+t.Union([t.String(), t.Number()])
+// Accepts: "hello" or 42
+```
+
+### t.Intersect
+
+Intersection of multiple types (AND).
+
+```typescript
+t.Intersect([
+  t.Object({ name: t.String() }),
+  t.Object({ age: t.Number() })
+])
+// Requires: { name: string, age: number }
+```
+
+### t.Enum
+
+Enumeration of values.
+
+```typescript
+enum Role {
+  User = 'user',
+  Admin = 'admin'
+}
+
+t.Enum(Role)
+```
+
+### t.Literal
+
+Exact literal value.
+
+```typescript
+t.Literal('hello')
+// Only accepts: "hello"
+```
+
+### t.TemplateLiteral
+
+Template literal pattern.
+
+```typescript
+t.TemplateLiteral('user-${string}')
+// Matches: "user-123", "user-abc"
+```
+
+## Modifiers
+
+### t.Optional
+
+Make a property optional.
+
+```typescript
+t.Object({
+  name: t.String(),
+  email: t.Optional(t.String())
+})
+```
+
+### t.Nullable
+
+Allow null values.
+
+```typescript
+t.Nullable(t.String())
+// Accepts: "hello" or null
+```
+
+### t.MaybeEmpty
+
+Allow null, undefined, or the value.
+
+```typescript
+t.MaybeEmpty(t.String())
+// Accepts: "hello", null, or undefined
+```
+
+## Advanced types
+
+### t.Record
+
+Record type with dynamic keys.
+
+```typescript
+t.Record(t.String(), t.Number())
+// Matches: { [key: string]: number }
+```
+
+### t.Partial
+
+Make all properties optional.
+
+```typescript
+t.Partial(t.Object({
+  name: t.String(),
+  age: t.Number()
+}))
+```
+
+### t.Required
+
+Make all properties required.
+
+```typescript
+t.Required(t.Object({
+  name: t.Optional(t.String())
+}))
+```
+
+### t.Pick
+
+Pick specific properties.
+
+```typescript
+const User = t.Object({
+  name: t.String(),
+  age: t.Number(),
+  email: t.String()
+})
+
+t.Pick(User, ['name', 'email'])
+```
+
+### t.Omit
+
+Omit specific properties.
+
+```typescript
+t.Omit(User, ['email'])
+```
+
+### t.Ref
+
+Reference another schema.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .model({
+    user: t.Object({
+      name: t.String()
+    })
+  })
+  .post('/user', ({ body }) => body, {
+    body: 'user' // Reference the model
+  })
+```
+
+## Validation options
+
+All types accept these common options:
+
+<ParamField path="default" type="any">
+  Default value if not provided
+</ParamField>
+
+<ParamField path="description" type="string">
+  Schema description for documentation
+</ParamField>
+
+<ParamField path="examples" type="any[]">
+  Example values for documentation
+</ParamField>
+
+```typescript
+t.String({
+  default: 'guest',
+  description: 'User name',
+  examples: ['john', 'jane']
+})
+```

@@ -1,0 +1,359 @@
+---
+title: Context object
+description: Request context object API reference
+---
+
+The Context object is passed to all route handlers and lifecycle hooks, providing access to request data, response utilities, and application state.
+
+## Request properties
+
+### body
+
+The parsed request body. Type is inferred from the body schema.
+
+```typescript
+app.post('/users', ({ body }) => {
+  console.log(body.name, body.email)
+  return body
+}, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String()
+  })
+})
+```
+
+<ResponseField name="body" type="unknown">
+  Parsed request body matching the schema definition
+</ResponseField>
+
+### query
+
+URL query parameters as an object.
+
+```typescript
+app.get('/search', ({ query }) => {
+  return { term: query.q, page: query.page }
+})
+// GET /search?q=elysia&page=1
+```
+
+<ResponseField name="query" type="Record<string, string>">
+  Query string parameters parsed as key-value pairs
+</ResponseField>
+
+### params
+
+URL path parameters extracted from dynamic routes.
+
+```typescript
+app.get('/users/:id', ({ params }) => {
+  return { userId: params.id }
+})
+// GET /users/123 -> { id: '123' }
+```
+
+<ResponseField name="params" type="Record<string, string>">
+  Path parameters from the route pattern
+</ResponseField>
+
+### headers
+
+Request headers object.
+
+```typescript
+app.get('/info', ({ headers }) => {
+  return {
+    userAgent: headers['user-agent'],
+    auth: headers.authorization
+  }
+})
+```
+
+<ResponseField name="headers" type="Record<string, string | undefined>">
+  HTTP request headers as key-value pairs
+</ResponseField>
+
+### cookie
+
+Cookies with getter/setter methods.
+
+```typescript
+app.get('/session', ({ cookie }) => {
+  const session = cookie.session.value
+  
+  cookie.session.set({
+    value: 'new-session-id',
+    maxAge: 3600
+  })
+  
+  return { session }
+})
+```
+
+<ResponseField name="cookie" type="Record<string, Cookie>">
+  Cookie objects with `.value`, `.set()`, and `.remove()` methods
+  
+  <Expandable title="Cookie methods">
+    <ResponseField name="value" type="string | undefined">
+      Get the cookie value
+    </ResponseField>
+    
+    <ResponseField name="set(options)" type="void">
+      Set the cookie with options (value, maxAge, path, domain, secure, httpOnly, sameSite)
+    </ResponseField>
+    
+    <ResponseField name="remove()" type="void">
+      Remove the cookie by setting maxAge to 0
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### request
+
+The standard Web Request object.
+
+```typescript
+app.post('/upload', async ({ request }) => {
+  const formData = await request.formData()
+  return { uploaded: true }
+})
+```
+
+<ResponseField name="request" type="Request">
+  Standard Web API Request object
+</ResponseField>
+
+### path
+
+The actual request path from the URL.
+
+```typescript
+app.get('/users/:id', ({ path }) => {
+  console.log(path) // "/users/123"
+  return { path }
+})
+```
+
+<ResponseField name="path" type="string">
+  Path extracted from the incoming request URL (e.g., "/id/9")
+</ResponseField>
+
+### route
+
+The route pattern as registered.
+
+```typescript
+app.get('/users/:id', ({ route }) => {
+  console.log(route) // "/users/:id"
+  return { route }
+})
+```
+
+<ResponseField name="route" type="string">
+  Path pattern registered to the router (e.g., "/id/:id")
+</ResponseField>
+
+## Response utilities
+
+### set
+
+Object for setting response properties.
+
+```typescript
+app.get('/custom', ({ set }) => {
+  set.status = 201
+  set.headers['X-Custom'] = 'value'
+  return { created: true }
+})
+```
+
+<ResponseField name="set.status" type="number | keyof StatusMap">
+  HTTP status code (200, 404, etc.) or status name ('OK', 'Not Found')
+</ResponseField>
+
+<ResponseField name="set.headers" type="Record<string, string>">
+  Response headers to send
+</ResponseField>
+
+<ResponseField name="set.redirect" type="string" deprecated>
+  Redirect URL (deprecated - use `redirect()` function instead)
+</ResponseField>
+
+### status()
+
+Type-safe function to set status code and return typed response.
+
+```typescript
+app.get('/users/:id', ({ params, status }) => {
+  if (!findUser(params.id)) {
+    return status(404, { error: 'User not found' })
+  }
+  return status(200, { user: findUser(params.id) })
+})
+```
+
+<ParamField path="code" type="number" required>
+  HTTP status code
+</ParamField>
+
+<ParamField path="response" type="unknown" required>
+  Response body matching the schema for this status code
+</ParamField>
+
+### redirect()
+
+Redirect to another URL.
+
+```typescript
+app.get('/old-path', ({ redirect }) => {
+  return redirect('/new-path')
+})
+
+app.get('/external', ({ redirect }) => {
+  return redirect('https://example.com', 301)
+})
+```
+
+<ParamField path="url" type="string" required>
+  Destination URL (relative or absolute)
+</ParamField>
+
+<ParamField path="status" type="number" optional default="302">
+  HTTP redirect status code (301, 302, 307, 308)
+</ParamField>
+
+## Application state
+
+### store
+
+Access global mutable state defined with `state()`.
+
+```typescript
+app
+  .state('counter', 0)
+  .get('/increment', ({ store }) => {
+    store.counter++
+    return { counter: store.counter }
+  })
+```
+
+<ResponseField name="store" type="Record<string, unknown>">
+  Global mutable state object
+</ResponseField>
+
+### server
+
+The underlying server instance.
+
+```typescript
+app.get('/info', ({ server }) => {
+  return {
+    hostname: server?.hostname,
+    port: server?.port
+  }
+})
+```
+
+<ResponseField name="server" type="Server | null">
+  Bun.Server instance or null if server hasn't started
+</ResponseField>
+
+## Derived properties
+
+Properties added via `decorate()`, `derive()`, and `resolve()` are directly accessible on the context.
+
+### Decorators
+
+Immutable properties from `decorate()`.
+
+```typescript
+app
+  .decorate('db', new Database())
+  .get('/users', ({ db }) => {
+    return db.query('SELECT * FROM users')
+  })
+```
+
+### Derived values
+
+Request-scoped properties from `derive()`.
+
+```typescript
+app
+  .derive(({ headers }) => ({
+    userId: parseToken(headers.authorization)
+  }))
+  .get('/profile', ({ userId }) => {
+    return { userId }
+  })
+```
+
+### Resolved values
+
+Properties from `resolve()` lifecycle hooks.
+
+```typescript
+app
+  .resolve(({ headers }) => ({
+    user: fetchUser(headers.authorization)
+  }))
+  .get('/me', ({ user }) => user)
+```
+
+## Type safety
+
+The Context type is fully generic and type-safe:
+
+```typescript
+import type { Context } from 'elysia'
+
+type MyContext = Context<
+  {
+    body: { name: string }
+    params: { id: string }
+    query: { page: number }
+  },
+  {
+    decorator: { db: Database }
+    store: { counter: number }
+    derive: { userId: string }
+    resolve: { user: User }
+  }
+>
+
+// All properties are properly typed
+function handler(context: MyContext) {
+  context.body.name      // string
+  context.params.id      // string
+  context.query.page     // number
+  context.db            // Database
+  context.store.counter // number
+  context.userId        // string
+  context.user          // User
+}
+```
+
+## Error context
+
+In error handlers, the context includes additional error properties:
+
+```typescript
+app.onError(({ code, error, set }) => {
+  if (code === 'VALIDATION') {
+    set.status = 422
+    return { error: error.message }
+  }
+  
+  set.status = 500
+  return { error: 'Internal Server Error' }
+})
+```
+
+<ResponseField name="code" type="string">
+  Error code: 'VALIDATION', 'NOT_FOUND', 'PARSE', 'INTERNAL_SERVER_ERROR', 'UNKNOWN'
+</ResponseField>
+
+<ResponseField name="error" type="Error">
+  The error object that was thrown
+</ResponseField>

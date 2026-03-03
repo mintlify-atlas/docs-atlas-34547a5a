@@ -1,0 +1,244 @@
+---
+title: HTTP methods
+description: API reference for Elysia's HTTP method APIs including get, post, put, patch, delete, and more
+---
+
+Elysia provides chainable methods for registering HTTP route handlers. Each method corresponds to a standard HTTP verb.
+
+## get
+
+Register a handler for GET requests.
+
+<ParamField path="path" type="string" required>
+  The route path (e.g., `/`, `/users/:id`)
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The route handler function that receives the context and returns a response
+</ParamField>
+
+<ParamField path="hook" type="LocalHook">
+  Optional validation and lifecycle hooks for the route
+</ParamField>
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .get('/', () => 'Hello World')
+  .get('/users/:id', ({ params }) => `User ${params.id}`)
+  .listen(3000)
+```
+
+With validation:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .get('/user', ({ query }) => query, {
+    query: t.Object({
+      name: t.String()
+    }),
+    response: t.Object({
+      name: t.String()
+    })
+  })
+```
+
+## post
+
+Register a handler for POST requests.
+
+<ParamField path="path" type="string" required>
+  The route path
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The route handler function
+</ParamField>
+
+<ParamField path="hook" type="LocalHook">
+  Optional validation and lifecycle hooks
+</ParamField>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/', ({ body }) => body, {
+    body: t.Object({
+      username: t.String(),
+      password: t.String()
+    })
+  })
+```
+
+## put
+
+Register a handler for PUT requests.
+
+<ParamField path="path" type="string" required>
+  The route path
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The route handler function
+</ParamField>
+
+<ParamField path="hook" type="LocalHook">
+  Optional validation and lifecycle hooks
+</ParamField>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .put('/user/:id', ({ body, params }) => ({
+    id: params.id,
+    ...body
+  }), {
+    params: t.Object({
+      id: t.String()
+    }),
+    body: t.Object({
+      name: t.String()
+    })
+  })
+```
+
+## patch
+
+Register a handler for PATCH requests.
+
+<ParamField path="path" type="string" required>
+  The route path
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The route handler function
+</ParamField>
+
+<ParamField path="hook" type="LocalHook">
+  Optional validation and lifecycle hooks
+</ParamField>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .patch('/user/:id', ({ body, params }) => ({
+    id: params.id,
+    updated: body
+  }), {
+    params: t.Object({
+      id: t.String()
+    }),
+    body: t.Object({
+      name: t.Optional(t.String()),
+      email: t.Optional(t.String())
+    })
+  })
+```
+
+## delete
+
+Register a handler for DELETE requests.
+
+<ParamField path="path" type="string" required>
+  The route path
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The route handler function
+</ParamField>
+
+<ParamField path="hook" type="LocalHook">
+  Optional validation and lifecycle hooks
+</ParamField>
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .delete('/user/:id', ({ params }) => ({
+    success: true,
+    id: params.id
+  }))
+```
+
+## all
+
+Register a handler for all HTTP methods (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS).
+
+<ParamField path="path" type="string" required>
+  The route path
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The route handler function
+</ParamField>
+
+<ParamField path="hook" type="LocalHook">
+  Optional validation and lifecycle hooks
+</ParamField>
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .all('/wildcard', ({ request }) => request.method)
+```
+
+## head
+
+Register a handler for HEAD requests.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .head('/', () => null)
+```
+
+## options
+
+Register a handler for OPTIONS requests.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .options('/', () => null, {
+    headers: {
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE'
+    }
+  })
+```
+
+## route
+
+Register a handler with a custom HTTP method.
+
+<ParamField path="method" type="string" required>
+  The HTTP method (e.g., 'GET', 'POST', 'CUSTOM')
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  The route path
+</ParamField>
+
+<ParamField path="handler" type="function" required>
+  The route handler function
+</ParamField>
+
+<ParamField path="hook" type="LocalHook">
+  Optional validation and lifecycle hooks
+</ParamField>
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .route('M-SEARCH', '/', () => 'Custom method')
+```

@@ -1,0 +1,405 @@
+---
+title: Error classes
+description: Built-in error classes for handling HTTP errors and validation failures
+---
+
+Elysia provides specialized error classes for common HTTP scenarios with automatic status code handling.
+
+## ValidationError
+
+Thrown when request validation fails against a schema.
+
+```typescript
+class ValidationError extends Error {
+  code: 'VALIDATION'
+  status: 422
+  
+  constructor(
+    type: string,
+    validator: TSchema | TypeCheck | ElysiaTypeCheck,
+    value: unknown,
+    allowUnsafeValidationDetails?: boolean,
+    errors?: ValueErrorIterator
+  )
+}
+```
+
+<ParamField path="type" type="string" required>
+  Validation type: `'body'`, `'query'`, `'params'`, `'headers'`, or `'cookie'`
+</ParamField>
+
+<ParamField path="validator" type="TSchema | TypeCheck" required>
+  Schema validator that failed
+</ParamField>
+
+<ParamField path="value" type="unknown" required>
+  The invalid input value
+</ParamField>
+
+<ParamField path="allowUnsafeValidationDetails" type="boolean" default={false}>
+  Whether to expose detailed validation errors in production
+</ParamField>
+
+<ParamField path="errors" type="ValueErrorIterator">
+  Pre-computed validation errors
+</ParamField>
+
+### Properties
+
+<ResponseField name="code" type="'VALIDATION'">
+  Error code identifier
+</ResponseField>
+
+<ResponseField name="status" type="422">
+  HTTP status code
+</ResponseField>
+
+<ResponseField name="valueError" type="ValueError">
+  First validation error details
+</ResponseField>
+
+<ResponseField name="expected" type="unknown">
+  Expected value based on schema
+</ResponseField>
+
+<ResponseField name="customError" type="unknown">
+  Custom error message if provided in schema
+</ResponseField>
+
+<ResponseField name="all" type="ValueErrorWithSummary[]">
+  Array of all validation errors with human-readable summaries
+</ResponseField>
+
+<ResponseField name="model" type="unknown">
+  Simplified schema model
+</ResponseField>
+
+### Methods
+
+#### toResponse
+
+Convert error to HTTP Response.
+
+```typescript
+toResponse(headers?: Record<string, any>): Response
+```
+
+<ParamField path="headers" type="Record<string, any>">
+  Additional headers to include
+</ParamField>
+
+<ResponseField name="return" type="Response">
+  Response with status 400 and JSON error body
+</ResponseField>
+
+#### detail
+
+Get detailed error information including custom messages.
+
+```typescript
+detail(
+  message: unknown,
+  allowUnsafeValidatorDetails?: boolean
+): object
+```
+
+<ParamField path="message" type="unknown" required>
+  Custom error message
+</ParamField>
+
+<ParamField path="allowUnsafeValidatorDetails" type="boolean">
+  Override production safety settings
+</ParamField>
+
+<ResponseField name="return" type="object">
+  Detailed error object with validation context
+</ResponseField>
+
+### Example
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+app
+  .onError(({ code, error }) => {
+    if (code === 'VALIDATION') {
+      return {
+        errors: error.all,
+        message: 'Validation failed'
+      }
+    }
+  })
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      name: t.String({ minLength: 3 }),
+      email: t.String({ format: 'email' }),
+      age: t.Number({ minimum: 18 })
+    })
+  })
+```
+
+## NotFoundError
+
+Thrown when a route is not found.
+
+```typescript
+class NotFoundError extends Error {
+  code: 'NOT_FOUND'
+  status: 404
+  
+  constructor(message?: string)
+}
+```
+
+<ParamField path="message" type="string" default="'NOT_FOUND'">
+  Custom error message
+</ParamField>
+
+<ResponseField name="code" type="'NOT_FOUND'">
+  Error code identifier
+</ResponseField>
+
+<ResponseField name="status" type="404">
+  HTTP status code
+</ResponseField>
+
+```typescript
+import { Elysia, NotFoundError } from 'elysia'
+
+app.get('/users/:id', ({ params: { id }, error }) => {
+  const user = db.findUser(id)
+  
+  if (!user) {
+    throw new NotFoundError('User not found')
+  }
+  
+  return user
+})
+```
+
+## InternalServerError
+
+Thrown for unexpected server errors.
+
+```typescript
+class InternalServerError extends Error {
+  code: 'INTERNAL_SERVER_ERROR'
+  status: 500
+  
+  constructor(message?: string)
+}
+```
+
+<ParamField path="message" type="string" default="'INTERNAL_SERVER_ERROR'">
+  Custom error message
+</ParamField>
+
+<ResponseField name="code" type="'INTERNAL_SERVER_ERROR'">
+  Error code identifier
+</ResponseField>
+
+<ResponseField name="status" type="500">
+  HTTP status code
+</ResponseField>
+
+```typescript
+import { Elysia, InternalServerError } from 'elysia'
+
+app.get('/data', async () => {
+  try {
+    return await fetchData()
+  } catch (err) {
+    throw new InternalServerError('Failed to fetch data')
+  }
+})
+```
+
+## ParseError
+
+Thrown when request body parsing fails.
+
+```typescript
+class ParseError extends Error {
+  code: 'PARSE'
+  status: 400
+  
+  constructor(cause?: Error)
+}
+```
+
+<ParamField path="cause" type="Error">
+  Underlying parse error
+</ParamField>
+
+<ResponseField name="code" type="'PARSE'">
+  Error code identifier
+</ResponseField>
+
+<ResponseField name="status" type="400">
+  HTTP status code
+</ResponseField>
+
+```typescript
+import { Elysia } from 'elysia'
+
+app
+  .onError(({ code, error }) => {
+    if (code === 'PARSE') {
+      return {
+        error: 'Invalid request body',
+        details: error.cause?.message
+      }
+    }
+  })
+  .post('/json', ({ body }) => body)
+```
+
+## InvalidCookieSignature
+
+Thrown when cookie signature verification fails.
+
+```typescript
+class InvalidCookieSignature extends Error {
+  code: 'INVALID_COOKIE_SIGNATURE'
+  status: 400
+  
+  constructor(
+    key: string,
+    message?: string
+  )
+}
+```
+
+<ParamField path="key" type="string" required>
+  Cookie key that failed verification
+</ParamField>
+
+<ParamField path="message" type="string">
+  Custom error message (defaults to `"{key}" has invalid cookie signature`)
+</ParamField>
+
+<ResponseField name="code" type="'INVALID_COOKIE_SIGNATURE'">
+  Error code identifier
+</ResponseField>
+
+<ResponseField name="status" type="400">
+  HTTP status code
+</ResponseField>
+
+<ResponseField name="key" type="string">
+  The cookie key that failed
+</ResponseField>
+
+```typescript
+import { Elysia } from 'elysia'
+
+app
+  .onError(({ code, error }) => {
+    if (code === 'INVALID_COOKIE_SIGNATURE') {
+      return {
+        error: 'Cookie verification failed',
+        key: error.key
+      }
+    }
+  })
+  .get('/', ({ cookie: { session } }) => session.value)
+```
+
+## Custom status responses
+
+Create custom status code responses with type safety.
+
+### status
+
+```typescript
+status<Code>(
+  code: Code,
+  response?: T
+): ElysiaCustomStatusResponse<Code, T>
+```
+
+<ParamField path="code" type="number | keyof StatusMap" required>
+  HTTP status code or status name
+</ParamField>
+
+<ParamField path="response" type="T">
+  Response body (optional for empty status codes)
+</ParamField>
+
+<ResponseField name="return" type="ElysiaCustomStatusResponse">
+  Typed status response object with `code` and `response` properties
+</ResponseField>
+
+```typescript
+import { Elysia, status } from 'elysia'
+
+app.get('/users', () => {
+  return status(201, { message: 'Created' })
+})
+
+app.delete('/users/:id', () => {
+  return status('No Content') // 204
+})
+
+app.get('/moved', () => {
+  return status(301, 'Moved Permanently')
+})
+```
+
+## Error handling
+
+Handle errors globally with type-safe error codes.
+
+```typescript
+import { Elysia } from 'elysia'
+
+app.onError(({ code, error, set }) => {
+  switch (code) {
+    case 'VALIDATION':
+      set.status = 422
+      return {
+        type: 'validation',
+        errors: error.all
+      }
+    
+    case 'NOT_FOUND':
+      set.status = 404
+      return {
+        error: 'Route not found'
+      }
+    
+    case 'PARSE':
+      set.status = 400
+      return {
+        error: 'Invalid request body'
+      }
+    
+    case 'INTERNAL_SERVER_ERROR':
+      set.status = 500
+      return {
+        error: 'Internal server error'
+      }
+    
+    default:
+      return {
+        error: 'Unknown error',
+        code
+      }
+  }
+})
+```
+
+## Value error mapping
+
+Validation errors include helpful summaries.
+
+```typescript
+const error = new ValidationError('body', schema, value)
+
+error.all.forEach(err => {
+  console.log(err.summary)
+  // "Property 'email' should be email"
+  // "Property 'age' is missing"
+  // "Value should be one of 'admin', 'user'"
+})
+```

@@ -1,0 +1,757 @@
+---
+title: "Deployment"
+description: "Deploy your Elysia application to production"
+---
+
+<Info>
+  Elysia applications can be deployed to various platforms. This guide covers deployment strategies for different environments.
+</Info>
+
+## Production checklist
+
+Before deploying to production, ensure you:
+
+<Steps>
+  <Step title="Enable production mode">
+    Set the `NODE_ENV` environment variable:
+    
+    ```bash
+    export NODE_ENV=production
+    ```
+    
+    This disables detailed validation error messages for security.
+  </Step>
+  
+  <Step title="Configure error handling">
+    Implement proper error handling:
+    
+    ```typescript
+    const app = new Elysia()
+      .onError(({ code, error, set }) => {
+        if (process.env.NODE_ENV === 'production') {
+          // Don't expose internal errors in production
+          console.error(error)
+          set.status = 500
+          return { error: 'Internal server error' }
+        }
+        
+        return { error: error.message }
+      })
+    ```
+  </Step>
+  
+  <Step title="Disable unsafe validation details">
+    For production, disable detailed validation errors:
+    
+    ```typescript
+    const app = new Elysia({
+      allowUnsafeValidationDetails: false
+    })
+    ```
+  </Step>
+  
+  <Step title="Configure CORS">
+    Set up CORS for your production domains:
+    
+    ```typescript
+    import { cors } from '@elysiajs/cors'
+    
+    const app = new Elysia()
+      .use(cors({
+        origin: ['https://yourdomain.com'],
+        credentials: true
+      }))
+    ```
+  </Step>
+</Steps>
+
+## Deploying with Bun
+
+Elysia is designed for Bun and provides the best performance when deployed on Bun-compatible platforms.
+
+### Standalone deployment
+
+Deploy your application directly with Bun:
+
+<Steps>
+  <Step title="Create production build">
+    While Bun can run TypeScript directly, you may want to bundle for optimal performance:
+    
+    ```typescript build.ts
+    await Bun.build({
+      entrypoints: ['./src/index.ts'],
+      outdir: './dist',
+      target: 'bun',
+      minify: true
+    })
+    ```
+  </Step>
+  
+  <Step title="Create start script">
+    Add a start script to your `package.json`:
+    
+    ```json package.json
+    {
+      "scripts": {
+        "build": "bun run build.ts",
+        "start": "bun run dist/index.js"
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Run in production">
+    Start your application:
+    
+    ```bash
+    bun run build
+    bun start
+    ```
+  </Step>
+</Steps>
+
+### Compiled executable
+
+Create a standalone executable with `bun build --compile`:
+
+```bash
+bun build --compile ./src/index.ts --outfile server
+```
+
+This creates a single binary that includes Bun and your application:
+
+```bash
+./server
+```
+
+<Info>
+  Compiled executables are perfect for containerless deployments and edge computing.
+</Info>
+
+## Docker deployment
+
+Deploy Elysia applications using Docker:
+
+### Dockerfile
+
+Create a production-ready Dockerfile:
+
+```dockerfile Dockerfile
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Install dependencies
+FROM base AS install
+RUN mkdir -p /temp/prod
+COPY package.json bun.lockb /temp/prod/
+RUN cd /temp/prod && bun install --frozen-lockfile --production
+
+# Copy application code
+FROM base AS prerelease
+COPY --from=install /temp/prod/node_modules node_modules
+COPY . .
+
+# Set environment and run
+FROM base AS release
+COPY --from=install /temp/prod/node_modules node_modules
+COPY --from=prerelease /app .
+
+USER bun
+EXPOSE 3000
+ENTRYPOINT ["bun", "run", "src/index.ts"]
+```
+
+### Docker Compose
+
+For development and staging:
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    restart: unless-stopped
+```
+
+### Build and run
+
+<CodeGroup>
+```bash Build image
+docker build -t elysia-app .
+```
+
+```bash Run container
+docker run -p 3000:3000 -e NODE_ENV=production elysia-app
+```
+
+```bash Using docker-compose
+docker-compose up -d
+```
+</CodeGroup>
+
+## Cloud platforms
+
+### Railway
+
+Deploy to Railway in three steps:
+
+<Steps>
+  <Step title="Install Railway CLI">
+    ```bash
+    npm i -g @railway/cli
+    ```
+  </Step>
+  
+  <Step title="Initialize project">
+    ```bash
+    railway login
+    railway init
+    ```
+  </Step>
+  
+  <Step title="Deploy">
+    ```bash
+    railway up
+    ```
+  </Step>
+</Steps>
+
+Railway automatically detects Bun and deploys your application.
+
+### Fly.io
+
+Deploy to Fly.io with automatic Bun support:
+
+<Steps>
+  <Step title="Install flyctl">
+    ```bash
+    curl -L https://fly.io/install.sh | sh
+    ```
+  </Step>
+  
+  <Step title="Launch application">
+    ```bash
+    fly launch
+    ```
+    
+    This creates a `fly.toml` configuration file:
+    
+    ```toml fly.toml
+    app = "your-app-name"
+    
+    [build]
+    
+    [http_service]
+      internal_port = 3000
+      force_https = true
+      auto_stop_machines = true
+      auto_start_machines = true
+      min_machines_running = 0
+    ```
+  </Step>
+  
+  <Step title="Deploy">
+    ```bash
+    fly deploy
+    ```
+  </Step>
+</Steps>
+
+### Render
+
+Deploy to Render:
+
+<Steps>
+  <Step title="Create render.yaml">
+    ```yaml render.yaml
+    services:
+      - type: web
+        name: elysia-app
+        env: docker
+        plan: starter
+        healthCheckPath: /health
+        envVars:
+          - key: NODE_ENV
+            value: production
+    ```
+  </Step>
+  
+  <Step title="Connect repository">
+    Connect your GitHub repository in the Render dashboard.
+  </Step>
+  
+  <Step title="Deploy">
+    Render automatically deploys on push to your main branch.
+  </Step>
+</Steps>
+
+## Serverless platforms
+
+### Cloudflare Workers
+
+Deploy to Cloudflare Workers using the adapter:
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    bun add elysia
+    ```
+  </Step>
+  
+  <Step title="Use Cloudflare adapter">
+    ```typescript src/index.ts
+    import { Elysia } from 'elysia'
+    
+    const app = new Elysia()
+      .get('/', () => 'Hello from Cloudflare Workers!')
+      .get('/api/user/:id', ({ params }) => ({
+        id: params.id
+      }))
+    
+    export default app
+    ```
+  </Step>
+  
+  <Step title="Configure wrangler">
+    ```toml wrangler.toml
+    name = "elysia-worker"
+    main = "src/index.ts"
+    compatibility_date = "2024-03-01"
+    
+    [build]
+    command = "bun build --target=browser --minify src/index.ts --outfile=dist/index.js"
+    ```
+  </Step>
+  
+  <Step title="Deploy">
+    ```bash
+    bunx wrangler deploy
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  When deploying to Cloudflare Workers, ensure you're using compatible APIs. Some Node.js APIs may not be available.
+</Warning>
+
+### AWS Lambda
+
+Deploy to AWS Lambda using the web standard adapter:
+
+```typescript
+import { Elysia } from 'elysia'
+import { webStandard } from 'elysia/adapter/web-standard'
+
+const app = new Elysia()
+  .use(webStandard())
+  .get('/', () => 'Hello from Lambda')
+
+export const handler = async (event: any) => {
+  const request = new Request(event.requestContext.http.path, {
+    method: event.requestContext.http.method,
+    headers: event.headers
+  })
+  
+  return await app.handle(request)
+}
+```
+
+## Node.js deployment
+
+Deploy on Node.js using the Node adapter:
+
+```typescript src/index.ts
+import { Elysia } from 'elysia'
+import { node } from '@elysiajs/node'
+
+const app = new Elysia()
+  .use(node())
+  .get('/', () => 'Hello from Node.js')
+  .listen(3000)
+
+console.log('Server running on http://localhost:3000')
+```
+
+### PM2 process manager
+
+Use PM2 for process management:
+
+<Steps>
+  <Step title="Install PM2">
+    ```bash
+    npm install -g pm2
+    ```
+  </Step>
+  
+  <Step title="Create ecosystem file">
+    ```javascript ecosystem.config.js
+    module.exports = {
+      apps: [{
+        name: 'elysia-app',
+        script: 'bun',
+        args: 'run src/index.ts',
+        instances: 'max',
+        exec_mode: 'cluster',
+        env: {
+          NODE_ENV: 'production',
+          PORT: 3000
+        }
+      }]
+    }
+    ```
+  </Step>
+  
+  <Step title="Start with PM2">
+    ```bash
+    pm2 start ecosystem.config.js
+    pm2 save
+    pm2 startup
+    ```
+  </Step>
+</Steps>
+
+## Reverse proxy setup
+
+### Nginx
+
+Configure Nginx as a reverse proxy:
+
+```nginx /etc/nginx/sites-available/elysia-app
+server {
+    listen 80;
+    server_name yourdomain.com;
+    
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+Enable the site:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/elysia-app /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Caddy
+
+Caddy provides automatic HTTPS:
+
+```caddyfile Caddyfile
+yourdomain.com {
+    reverse_proxy localhost:3000
+}
+```
+
+Start Caddy:
+
+```bash
+caddy run
+```
+
+## Environment configuration
+
+Manage environment variables securely:
+
+### Using .env files
+
+```bash .env.production
+NODE_ENV=production
+PORT=3000
+DATABASE_URL=postgresql://...
+JWT_SECRET=your-secret-key
+CORS_ORIGIN=https://yourdomain.com
+```
+
+Load environment variables:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/', () => ({
+    env: process.env.NODE_ENV,
+    port: process.env.PORT
+  }))
+  .listen(process.env.PORT || 3000)
+```
+
+### Platform-specific secrets
+
+<Tabs>
+  <Tab title="Railway">
+    ```bash
+    railway variables set JWT_SECRET=your-secret
+    ```
+  </Tab>
+  
+  <Tab title="Fly.io">
+    ```bash
+    fly secrets set JWT_SECRET=your-secret
+    ```
+  </Tab>
+  
+  <Tab title="Cloudflare">
+    ```bash
+    wrangler secret put JWT_SECRET
+    ```
+  </Tab>
+</Tabs>
+
+## Health checks
+
+Implement health check endpoints:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/health', () => ({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  }))
+  .get('/ready', async () => {
+    // Check database connection, external services, etc.
+    try {
+      // await db.ping()
+      return { ready: true }
+    } catch (error) {
+      return new Response(
+        JSON.stringify({ ready: false }),
+        { status: 503 }
+      )
+    }
+  })
+```
+
+## Monitoring and logging
+
+### Application logging
+
+Implement structured logging:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .onRequest(({ request, set }) => {
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      method: request.method,
+      url: request.url,
+      userAgent: request.headers.get('user-agent')
+    }))
+  })
+  .onAfterResponse(({ request, set }) => {
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      method: request.method,
+      url: request.url,
+      status: set.status
+    }))
+  })
+```
+
+### Performance monitoring
+
+Use Elysia's tracing for performance insights:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async ({ handle }) => {
+    const start = Date.now()
+    
+    await handle
+    
+    const duration = Date.now() - start
+    
+    if (duration > 1000) {
+      console.warn(`Slow request: ${duration}ms`)
+    }
+  })
+```
+
+## Performance optimization
+
+<Steps>
+  <Step title="Enable AOT compilation">
+    Ahead-of-time compilation is enabled by default but can be configured:
+    
+    ```typescript
+    const app = new Elysia({
+      aot: true,
+      precompile: true
+    })
+    ```
+  </Step>
+  
+  <Step title="Use native static responses">
+    Enable Bun's native static response optimization:
+    
+    ```typescript
+    const app = new Elysia({
+      nativeStaticResponse: true
+    })
+    ```
+  </Step>
+  
+  <Step title="Enable system router">
+    Use Bun's native routing when available:
+    
+    ```typescript
+    const app = new Elysia({
+      systemRouter: true
+    })
+    ```
+  </Step>
+  
+  <Step title="Optimize response serialization">
+    Pre-serialize static responses:
+    
+    ```typescript
+    const cachedResponse = JSON.stringify({ data: 'static' })
+    
+    app.get('/static', ({ set }) => {
+      set.headers['content-type'] = 'application/json'
+      return cachedResponse
+    })
+    ```
+  </Step>
+</Steps>
+
+## Scaling strategies
+
+### Horizontal scaling
+
+Run multiple instances behind a load balancer:
+
+```bash
+# Start multiple instances
+bun run src/index.ts --port 3001 &
+bun run src/index.ts --port 3002 &
+bun run src/index.ts --port 3003 &
+```
+
+### Clustering with PM2
+
+```javascript ecosystem.config.js
+module.exports = {
+  apps: [{
+    name: 'elysia-app',
+    script: 'bun',
+    args: 'run src/index.ts',
+    instances: 4,
+    exec_mode: 'cluster'
+  }]
+}
+```
+
+### Auto-scaling on cloud platforms
+
+Most cloud platforms support auto-scaling:
+
+- **Fly.io**: Configure in `fly.toml`
+- **Railway**: Available on Pro plans
+- **AWS**: Use Auto Scaling Groups
+- **Cloudflare Workers**: Automatic scaling
+
+## Security best practices
+
+<Steps>
+  <Step title="Use HTTPS in production">
+    Always use HTTPS for production deployments. Most platforms provide automatic SSL/TLS.
+  </Step>
+  
+  <Step title="Implement rate limiting">
+    Protect your API from abuse:
+    
+    ```typescript
+    import { rateLimit } from '@elysiajs/rate-limit'
+    
+    const app = new Elysia()
+      .use(rateLimit({
+        duration: 60000,
+        max: 100
+      }))
+    ```
+  </Step>
+  
+  <Step title="Validate and sanitize input">
+    Always validate user input with schema validation.
+  </Step>
+  
+  <Step title="Set security headers">
+    ```typescript
+    app.onRequest(({ set }) => {
+      set.headers['X-Content-Type-Options'] = 'nosniff'
+      set.headers['X-Frame-Options'] = 'DENY'
+      set.headers['X-XSS-Protection'] = '1; mode=block'
+    })
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Application crashes on startup">
+    Check your logs for errors:
+    
+    ```bash
+    # Docker
+    docker logs container-name
+    
+    # PM2
+    pm2 logs elysia-app
+    
+    # Railway
+    railway logs
+    ```
+  </Accordion>
+  
+  <Accordion title="Port binding issues">
+    Ensure the port is available and properly configured:
+    
+    ```typescript
+    const port = process.env.PORT || 3000
+    
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`)
+    })
+    ```
+  </Accordion>
+  
+  <Accordion title="Environment variables not loading">
+    Verify environment variables are set:
+    
+    ```typescript
+    console.log('Environment:', {
+      NODE_ENV: process.env.NODE_ENV,
+      PORT: process.env.PORT
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  For platform-specific deployment guides, consult the documentation for your chosen platform and the [Elysia Discord community](https://discord.gg/eaFJ2KDJck).
+</Note>

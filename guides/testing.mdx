@@ -1,0 +1,639 @@
+---
+title: "Testing"
+description: "Test your Elysia applications with Bun's built-in test runner"
+---
+
+<Info>
+  Elysia applications are easy to test using Bun's built-in test runner. This guide covers common testing patterns and best practices.
+</Info>
+
+## Setting up tests
+
+Elysia works seamlessly with Bun's test runner, which provides a fast, Jest-compatible testing experience.
+
+### Test file structure
+
+Organize your tests alongside your source code or in a dedicated `test` directory:
+
+```
+project/
+├── src/
+│   ├── index.ts
+│   └── routes/
+│       └── user.ts
+└── test/
+    ├── utils.ts
+    └── routes/
+        └── user.test.ts
+```
+
+### Basic test setup
+
+Create a test file using Bun's test framework:
+
+```typescript test/example.test.ts
+import { describe, expect, it } from 'bun:test'
+import { Elysia } from 'elysia'
+
+describe('Elysia', () => {
+  it('should return hello world', async () => {
+    const app = new Elysia()
+      .get('/', () => 'Hello World')
+    
+    const response = await app
+      .handle(new Request('http://localhost/'))
+      .then(res => res.text())
+    
+    expect(response).toBe('Hello World')
+  })
+})
+```
+
+### Running tests
+
+<CodeGroup>
+```bash Run all tests
+bun test
+```
+
+```bash Run specific test file
+bun test user.test.ts
+```
+
+```bash Watch mode
+bun test --watch
+```
+
+```bash Coverage
+bun test --coverage
+```
+</CodeGroup>
+
+## Testing patterns
+
+### Using the handle method
+
+The `handle` method is the primary way to test Elysia applications:
+
+```typescript
+import { Elysia } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+
+const app = new Elysia()
+  .get('/user/:id', ({ params }) => ({ id: params.id }))
+
+it('should return user by id', async () => {
+  const response = await app
+    .handle(new Request('http://localhost/user/123'))
+    .then(res => res.json())
+  
+  expect(response).toEqual({ id: '123' })
+})
+```
+
+### Helper utilities
+
+Create helper functions to simplify request creation:
+
+```typescript test/utils.ts
+export const req = (
+  path: string,
+  options?: RequestInit
+) => new Request(`http://localhost${path}`, options)
+
+export const post = (
+  path: string,
+  body?: any,
+  options?: RequestInit
+) => new Request(`http://localhost${path}`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    ...options?.headers
+  },
+  body: JSON.stringify(body),
+  ...options
+})
+```
+
+Use these helpers in your tests:
+
+```typescript
+import { req, post } from './utils'
+import { describe, expect, it } from 'bun:test'
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .post('/user', ({ body }) => body)
+
+it('should create user', async () => {
+  const response = await app
+    .handle(post('/user', { name: 'John' }))
+    .then(res => res.json())
+  
+  expect(response).toEqual({ name: 'John' })
+})
+```
+
+## Testing validation
+
+Test request validation to ensure your API handles invalid input correctly:
+
+```typescript
+import { Elysia, t } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+import { req } from './utils'
+
+const app = new Elysia()
+  .get('/user', ({ query }) => query, {
+    query: t.Object({
+      name: t.String(),
+      age: t.Number()
+    })
+  })
+
+describe('Validation', () => {
+  it('should validate query parameters', async () => {
+    const valid = await app
+      .handle(req('/user?name=John&age=25'))
+    
+    expect(valid.status).toBe(200)
+  })
+  
+  it('should reject invalid query parameters', async () => {
+    const invalid = await app
+      .handle(req('/user?name=John&age=invalid'))
+    
+    expect(invalid.status).toBe(422)
+  })
+})
+```
+
+### Testing response validation
+
+Ensure your handlers return correctly typed responses:
+
+```typescript
+import { Elysia, t } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+import { req } from './utils'
+
+const app = new Elysia()
+  .get('/valid', () => 'Hello', {
+    response: t.String()
+  })
+  .get('/invalid', () => 123 as any, {
+    response: t.String()
+  })
+
+it('should validate response schema', async () => {
+  const valid = await app.handle(req('/valid'))
+  const invalid = await app.handle(req('/invalid'))
+  
+  expect(valid.status).toBe(200)
+  expect(invalid.status).toBe(422)
+})
+```
+
+## Testing lifecycle hooks
+
+Test middleware and lifecycle hooks to ensure they execute correctly:
+
+<Tabs>
+  <Tab title="beforeHandle">
+    ```typescript
+    import { Elysia } from 'elysia'
+    import { describe, expect, it } from 'bun:test'
+    import { req } from './utils'
+    
+    const app = new Elysia()
+      .get('/protected', () => 'Secret', {
+        beforeHandle: ({ headers }) => {
+          if (!headers.authorization)
+            return new Response('Unauthorized', { status: 401 })
+        }
+      })
+    
+    it('should require authorization', async () => {
+      const unauthorized = await app.handle(req('/protected'))
+      expect(unauthorized.status).toBe(401)
+      
+      const authorized = await app.handle(
+        req('/protected', {
+          headers: { authorization: 'Bearer token' }
+        })
+      )
+      expect(authorized.status).toBe(200)
+    })
+    ```
+  </Tab>
+  
+  <Tab title="afterHandle">
+    ```typescript
+    const app = new Elysia()
+      .get('/data', () => ({ value: 'raw' }), {
+        afterHandle: ({ response }) => ({
+          ...response,
+          timestamp: Date.now()
+        })
+      })
+    
+    it('should transform response', async () => {
+      const response = await app
+        .handle(req('/data'))
+        .then(res => res.json())
+      
+      expect(response).toHaveProperty('value', 'raw')
+      expect(response).toHaveProperty('timestamp')
+    })
+    ```
+  </Tab>
+  
+  <Tab title="onError">
+    ```typescript
+    const app = new Elysia()
+      .onError(({ code, error }) => {
+        if (code === 'NOT_FOUND')
+          return { error: 'Route not found' }
+        
+        return { error: error.message }
+      })
+      .get('/error', () => {
+        throw new Error('Something went wrong')
+      })
+    
+    it('should handle errors', async () => {
+      const response = await app
+        .handle(req('/error'))
+        .then(res => res.json())
+      
+      expect(response).toEqual({
+        error: 'Something went wrong'
+      })
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Testing plugins
+
+Test custom plugins to ensure they work correctly:
+
+```typescript
+import { Elysia } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+import { req } from './utils'
+
+const authPlugin = new Elysia()
+  .derive(({ headers }) => ({
+    user: headers.authorization ? { id: '123' } : null
+  }))
+
+const app = new Elysia()
+  .use(authPlugin)
+  .get('/profile', ({ user }) => user)
+
+it('should inject user from plugin', async () => {
+  const withAuth = await app
+    .handle(req('/', {
+      headers: { authorization: 'Bearer token' }
+    }))
+    .then(res => res.json())
+  
+  expect(withAuth).toEqual({ id: '123' })
+  
+  const withoutAuth = await app
+    .handle(req('/'))
+    .then(res => res.json())
+  
+  expect(withoutAuth).toBeNull()
+})
+```
+
+### Testing scoped plugins
+
+Test plugin scope behavior:
+
+```typescript
+import { Elysia } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+
+const scopedPlugin = new Elysia()
+  .derive(() => ({ value: 'scoped' }))
+  .as('scoped')
+
+const innerApp = new Elysia()
+  .use(scopedPlugin)
+  .get('/inner', ({ value }) => value)
+
+const app = new Elysia()
+  .use(innerApp)
+  .get('/outer', ({ value }) => value ?? 'none')
+
+it('should scope plugin to inner routes only', async () => {
+  const inner = await app
+    .handle(req('/inner'))
+    .then(res => res.text())
+  
+  const outer = await app
+    .handle(req('/outer'))
+    .then(res => res.text())
+  
+  expect(inner).toBe('scoped')
+  expect(outer).toBe('none')
+})
+```
+
+## Testing guards and groups
+
+Test route groups and guards:
+
+```typescript
+import { Elysia, t } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+import { req } from './utils'
+
+const app = new Elysia()
+  .guard({
+    query: t.Object({
+      token: t.String()
+    })
+  }, (app) => app
+    .get('/protected', ({ query }) => query.token)
+  )
+  .get('/public', () => 'Public')
+
+it('should apply guard to protected routes', async () => {
+  const withToken = await app
+    .handle(req('/protected?token=abc'))
+  
+  const withoutToken = await app
+    .handle(req('/protected'))
+  
+  const publicRoute = await app
+    .handle(req('/public'))
+  
+  expect(withToken.status).toBe(200)
+  expect(withoutToken.status).toBe(422)
+  expect(publicRoute.status).toBe(200)
+})
+```
+
+## Testing WebSocket
+
+Test WebSocket connections:
+
+```typescript
+import { Elysia } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+
+const app = new Elysia()
+  .ws('/ws', {
+    message(ws, message) {
+      ws.send(`Echo: ${message}`)
+    }
+  })
+
+it('should handle WebSocket messages', async () => {
+  const server = app.listen(0)
+  const port = server.port
+  
+  const ws = new WebSocket(`ws://localhost:${port}/ws`)
+  
+  await new Promise<void>((resolve) => {
+    ws.onmessage = (event) => {
+      expect(event.data).toBe('Echo: Hello')
+      ws.close()
+      server.stop()
+      resolve()
+    }
+    
+    ws.onopen = () => {
+      ws.send('Hello')
+    }
+  })
+})
+```
+
+## Testing with state
+
+Test applications using global state:
+
+```typescript
+import { Elysia } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+import { req } from './utils'
+
+const app = new Elysia()
+  .state('counter', 0)
+  .get('/increment', ({ store }) => {
+    store.counter++
+    return store.counter
+  })
+
+it('should maintain state', async () => {
+  const first = await app
+    .handle(req('/increment'))
+    .then(res => res.text())
+  
+  const second = await app
+    .handle(req('/increment'))
+    .then(res => res.text())
+  
+  expect(first).toBe('1')
+  expect(second).toBe('2')
+})
+```
+
+<Warning>
+  State is shared across requests. Create a new Elysia instance for each test if you need isolated state.
+</Warning>
+
+## Testing cookies
+
+Test cookie handling:
+
+```typescript
+import { Elysia } from 'elysia'
+import { describe, expect, it } from 'bun:test'
+import { req } from './utils'
+
+const app = new Elysia()
+  .get('/set-cookie', ({ cookie: { name } }) => {
+    name.value = 'John'
+    return 'Cookie set'
+  })
+  .get('/get-cookie', ({ cookie: { name } }) => {
+    return name.value ?? 'No cookie'
+  })
+
+it('should set and read cookies', async () => {
+  const setResponse = await app.handle(req('/set-cookie'))
+  const cookies = setResponse.headers.getSetCookie()
+  
+  expect(cookies).toContain('name=John; Path=/')
+  
+  const getResponse = await app.handle(
+    req('/get-cookie', {
+      headers: { cookie: 'name=John' }
+    })
+  )
+  
+  expect(await getResponse.text()).toBe('John')
+})
+```
+
+## Integration testing
+
+Test complete application flows:
+
+```typescript
+import { Elysia, t } from 'elysia'
+import { describe, expect, it, beforeAll, afterAll } from 'bun:test'
+
+const db = {
+  users: [] as any[]
+}
+
+const app = new Elysia()
+  .post('/users', ({ body }) => {
+    const user = { id: db.users.length + 1, ...body }
+    db.users.push(user)
+    return user
+  }, {
+    body: t.Object({
+      name: t.String(),
+      email: t.String()
+    })
+  })
+  .get('/users/:id', ({ params }) => {
+    const user = db.users.find(u => u.id === +params.id)
+    if (!user) return new Response('Not found', { status: 404 })
+    return user
+  })
+
+describe('User API', () => {
+  beforeAll(() => {
+    db.users = []
+  })
+  
+  it('should create and retrieve user', async () => {
+    // Create user
+    const created = await app
+      .handle(post('/users', {
+        name: 'John',
+        email: 'john@example.com'
+      }))
+      .then(res => res.json())
+    
+    expect(created).toHaveProperty('id')
+    expect(created.name).toBe('John')
+    
+    // Retrieve user
+    const retrieved = await app
+      .handle(req(`/users/${created.id}`))
+      .then(res => res.json())
+    
+    expect(retrieved).toEqual(created)
+  })
+})
+```
+
+## Performance testing
+
+Benchmark your endpoints:
+
+```typescript
+import { Elysia } from 'elysia'
+import { bench, describe } from 'bun:test'
+
+const app = new Elysia()
+  .get('/', () => 'Hello World')
+  .get('/json', () => ({ message: 'Hello' }))
+
+describe('Performance', () => {
+  bench('GET /', async () => {
+    await app.handle(new Request('http://localhost/'))
+  })
+  
+  bench('GET /json', async () => {
+    await app.handle(new Request('http://localhost/json'))
+  })
+})
+```
+
+## Best practices
+
+<Steps>
+  <Step title="Isolate test instances">
+    Create a new Elysia instance for each test to avoid side effects:
+    
+    ```typescript
+    it('should be isolated', async () => {
+      const app = new Elysia()
+        .get('/', () => 'Hello')
+      
+      // Test app
+    })
+    ```
+  </Step>
+  
+  <Step title="Use descriptive test names">
+    Write clear test descriptions that explain what's being tested:
+    
+    ```typescript
+    it('should return 401 when authorization header is missing', async () => {
+      // Test
+    })
+    ```
+  </Step>
+  
+  <Step title="Test both success and failure cases">
+    Always test both happy paths and error scenarios:
+    
+    ```typescript
+    describe('User creation', () => {
+      it('should create user with valid data', async () => {})
+      it('should reject invalid email format', async () => {})
+      it('should reject duplicate email', async () => {})
+    })
+    ```
+  </Step>
+  
+  <Step title="Keep tests focused">
+    Each test should verify one specific behavior:
+    
+    ```typescript
+    // Good: focused test
+    it('should return user by id', async () => {})
+    
+    // Bad: testing multiple things
+    it('should create user, update user, and delete user', async () => {})
+    ```
+  </Step>
+</Steps>
+
+## Running tests in CI/CD
+
+Add testing to your CI pipeline:
+
+```yaml .github/workflows/test.yml
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun test
+```
+
+<Note>
+  For more information on Bun's test runner, see the [Bun testing documentation](https://bun.sh/docs/cli/test).
+</Note>

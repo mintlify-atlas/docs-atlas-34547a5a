@@ -1,0 +1,269 @@
+---
+title: Route handlers
+description: API reference for Elysia's route handler patterns and context object
+---
+
+Route handlers in Elysia are functions that process incoming requests and return responses. They receive a context object containing request data and utilities.
+
+## Handler function
+
+A handler function receives a context object and returns a response.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .get('/', () => 'Hello World')
+  .get('/user', ({ query }) => query)
+  .listen(3000)
+```
+
+## Context object
+
+The handler context provides access to request data and utilities.
+
+### body
+
+The parsed request body.
+
+```typescript
+new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      name: t.String()
+    })
+  })
+```
+
+### query
+
+Query parameters parsed from the URL.
+
+```typescript
+new Elysia()
+  .get('/search', ({ query }) => query, {
+    query: t.Object({
+      q: t.String()
+    })
+  })
+```
+
+### params
+
+Route parameters extracted from the path.
+
+```typescript
+new Elysia()
+  .get('/user/:id', ({ params }) => params.id, {
+    params: t.Object({
+      id: t.String()
+    })
+  })
+```
+
+### headers
+
+Request headers object.
+
+```typescript
+new Elysia()
+  .get('/', ({ headers }) => headers['user-agent'])
+```
+
+### request
+
+The native Request object.
+
+```typescript
+new Elysia()
+  .get('/', ({ request }) => request.method)
+```
+
+### set
+
+Utilities for modifying the response.
+
+<ResponseField name="set.status" type="number">
+  Set the HTTP status code
+</ResponseField>
+
+<ResponseField name="set.headers" type="Record<string, string>">
+  Set response headers
+</ResponseField>
+
+<ResponseField name="set.redirect" type="string">
+  Set a redirect location
+</ResponseField>
+
+```typescript
+new Elysia()
+  .get('/redirect', ({ set }) => {
+    set.status = 302
+    set.headers['Location'] = '/new-location'
+  })
+  .get('/json', ({ set }) => {
+    set.headers['Content-Type'] = 'application/json'
+    return { message: 'Hello' }
+  })
+```
+
+### cookie
+
+Access and set cookies.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .get('/get-cookie', ({ cookie }) => cookie.session.value)
+  .get('/set-cookie', ({ cookie }) => {
+    cookie.session.value = 'session-id'
+    cookie.session.maxAge = 3600
+  })
+```
+
+### path
+
+The request pathname.
+
+```typescript
+new Elysia()
+  .get('/*', ({ path }) => path)
+```
+
+### store
+
+Global mutable state shared across all handlers.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .state('counter', 0)
+  .get('/count', ({ store }) => store.counter++)
+```
+
+### decorator
+
+Decorators added via `.decorate()`.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .decorate('getDate', () => new Date())
+  .get('/', ({ getDate }) => getDate())
+```
+
+### derive
+
+Derived values added via `.derive()`.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .derive(({ headers }) => ({
+    userId: headers['user-id']
+  }))
+  .get('/user', ({ userId }) => userId)
+```
+
+### resolve
+
+Resolved values added via `.resolve()`.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .resolve(async ({ headers }) => ({
+    user: await db.getUserById(headers['user-id'])
+  }))
+  .get('/profile', ({ user }) => user)
+```
+
+## Response types
+
+Handlers can return various response types:
+
+### String
+
+```typescript
+new Elysia()
+  .get('/', () => 'Hello World')
+```
+
+### Object
+
+Automatically serialized to JSON.
+
+```typescript
+new Elysia()
+  .get('/', () => ({ message: 'Hello' }))
+```
+
+### Response
+
+Return a native Response object.
+
+```typescript
+new Elysia()
+  .get('/', () => new Response('Custom response', {
+    headers: {
+      'Content-Type': 'text/plain'
+    }
+  }))
+```
+
+### File
+
+Return a Bun.file for static file serving.
+
+```typescript
+new Elysia()
+  .get('/logo', () => Bun.file('logo.png'))
+```
+
+### Stream
+
+```typescript
+new Elysia()
+  .get('/stream', function* () {
+    yield 'Hello '
+    yield 'World'
+  })
+```
+
+## Async handlers
+
+Handlers can be async or return promises.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .get('/async', async () => {
+    const data = await fetch('https://api.example.com')
+    return data.json()
+  })
+```
+
+## Error handling
+
+Throw errors to trigger error handlers.
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .get('/error', () => {
+    throw new Error('Something went wrong')
+  })
+  .onError(({ code, error }) => {
+    if (code === 'NOT_FOUND')
+      return 'Route not found'
+    
+    return error.message
+  })
+```

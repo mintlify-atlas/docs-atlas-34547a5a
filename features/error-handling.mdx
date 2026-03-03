@@ -1,0 +1,523 @@
+---
+title: "Error handling"
+description: "Handle and customize error responses in Elysia"
+---
+
+## Overview
+
+Elysia provides a robust error handling system with built-in error types, custom error handlers, and automatic error transformation for common HTTP errors.
+
+## Built-in error types
+
+Elysia includes several built-in error classes defined in `src/error.ts:120-160`:
+
+### InternalServerError
+
+```typescript
+import { InternalServerError } from 'elysia'
+
+throw new InternalServerError('Something went wrong')
+// Status: 500, Code: 'INTERNAL_SERVER_ERROR'
+```
+
+### NotFoundError
+
+```typescript
+import { NotFoundError } from 'elysia'
+
+throw new NotFoundError('Resource not found')
+// Status: 404, Code: 'NOT_FOUND'
+```
+
+### ParseError
+
+```typescript
+import { ParseError } from 'elysia'
+
+throw new ParseError()
+// Status: 400, Code: 'PARSE'
+```
+
+### ValidationError
+
+Automatically thrown when validation fails:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      username: t.String(),
+      age: t.Number()
+    })
+  })
+  .listen(3000)
+
+// Invalid request automatically throws ValidationError
+// Status: 422, Code: 'VALIDATION'
+```
+
+### InvalidCookieSignature
+
+```typescript
+import { InvalidCookieSignature } from 'elysia'
+
+throw new InvalidCookieSignature('session')
+// Status: 400, Code: 'INVALID_COOKIE_SIGNATURE'
+```
+
+## Error handler
+
+Use `.onError()` to handle errors globally or locally:
+
+### Basic error handling
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .onError(({ code, error }) => {
+    console.error('Error:', code, error.message)
+    return {
+      error: error.message,
+      code
+    }
+  })
+  .get('/error', () => {
+    throw new Error('Something went wrong')
+  })
+  .listen(3000)
+```
+
+### Handling specific error codes
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .onError(({ code, error, set }) => {
+    switch (code) {
+      case 'VALIDATION':
+        set.status = 422
+        return {
+          error: 'Validation failed',
+          details: error.message
+        }
+      
+      case 'NOT_FOUND':
+        set.status = 404
+        return {
+          error: 'Route not found'
+        }
+      
+      case 'INTERNAL_SERVER_ERROR':
+        set.status = 500
+        return {
+          error: 'Internal server error'
+        }
+      
+      default:
+        return {
+          error: 'Unknown error',
+          message: error.message
+        }
+    }
+  })
+  .listen(3000)
+```
+
+## Example from source
+
+From `example/error.ts:3-18`:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .post('/', ({ body }) => body, {
+    body: t.Object({
+      username: t.String(),
+      password: t.String(),
+      nested: t.Optional(
+        t.Object({
+          hi: t.String()
+        })
+      )
+    }),
+    error({ error }) {
+      console.log(error)
+    }
+  })
+  .listen(3000)
+```
+
+## Local error handler
+
+Define error handlers specific to individual routes:
+
+```typescript
+const app = new Elysia()
+  .get('/user/:id', ({ params, error }) => {
+    const user = findUser(params.id)
+    
+    if (!user) {
+      return error(404, 'User not found')
+    }
+    
+    return user
+  })
+  .listen(3000)
+```
+
+## ValidationError details
+
+Access detailed validation errors:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .onError(({ code, error }) => {
+    if (code === 'VALIDATION') {
+      return {
+        error: 'Validation failed',
+        fields: error.all.map(e => ({
+          field: e.path,
+          message: e.summary,
+          value: e.value
+        }))
+      }
+    }
+  })
+  .post('/user', ({ body }) => body, {
+    body: t.Object({
+      username: t.String({ minLength: 3 }),
+      email: t.String({ format: 'email' }),
+      age: t.Number({ minimum: 18 })
+    })
+  })
+  .listen(3000)
+```
+
+## Custom error responses
+
+Return custom responses from error handlers:
+
+```typescript
+const app = new Elysia()
+  .onError(({ code, error, set }) => {
+    if (code === 'VALIDATION') {
+      set.status = 422
+      set.headers['x-error-type'] = 'validation'
+      
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error.message,
+          timestamp: Date.now()
+        }),
+        {
+          status: 422,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+    }
+  })
+  .listen(3000)
+```
+
+## Error inheritance
+
+Error handlers cascade from global to local:
+
+```typescript
+const app = new Elysia()
+  // Global error handler
+  .onError(({ code }) => {
+    console.log('Global error handler:', code)
+  })
+  .group('/api', (app) => app
+    // Group-level error handler
+    .onError(({ code }) => {
+      console.log('API error handler:', code)
+    })
+    .get('/user', () => {
+      throw new Error('User error')
+    }, {
+      // Route-level error handler
+      error({ error }) {
+        console.log('Route error handler:', error.message)
+        return { error: error.message }
+      }
+    })
+  )
+  .listen(3000)
+```
+
+## Status helper
+
+Return custom status codes easily:
+
+```typescript
+import { Elysia, status } from 'elysia'
+
+const app = new Elysia()
+  .get('/created', () => 
+    status(201, { message: 'Resource created' })
+  )
+  .get('/accepted', () => 
+    status(202, { message: 'Request accepted' })
+  )
+  .get('/no-content', () => 
+    status(204)
+  )
+  .listen(3000)
+```
+
+## Custom error class
+
+Create custom error types:
+
+```typescript
+class AuthenticationError extends Error {
+  code = 'AUTHENTICATION_ERROR'
+  status = 401
+  
+  constructor(message: string = 'Authentication failed') {
+    super(message)
+  }
+}
+
+const app = new Elysia()
+  .onError(({ code, error, set }) => {
+    if (code === 'AUTHENTICATION_ERROR') {
+      set.status = 401
+      return {
+        error: error.message,
+        code: 'AUTHENTICATION_ERROR'
+      }
+    }
+  })
+  .get('/protected', ({ headers }) => {
+    if (!headers.authorization) {
+      throw new AuthenticationError('Missing authorization header')
+    }
+    return { data: 'Protected data' }
+  })
+  .listen(3000)
+```
+
+## Production error handling
+
+Different error responses for development vs production:
+
+```typescript
+const isDevelopment = process.env.NODE_ENV === 'development'
+
+const app = new Elysia()
+  .onError(({ code, error, set }) => {
+    if (isDevelopment) {
+      // Detailed errors in development
+      return {
+        error: error.message,
+        code,
+        stack: error.stack,
+        details: error
+      }
+    }
+    
+    // Generic errors in production
+    switch (code) {
+      case 'VALIDATION':
+        set.status = 422
+        return { error: 'Invalid request data' }
+      
+      case 'NOT_FOUND':
+        set.status = 404
+        return { error: 'Resource not found' }
+      
+      default:
+        set.status = 500
+        return { error: 'An error occurred' }
+    }
+  })
+  .listen(3000)
+```
+
+## Async error handling
+
+Handle errors in async operations:
+
+```typescript
+const app = new Elysia()
+  .get('/user/:id', async ({ params, error }) => {
+    try {
+      const user = await fetchUser(params.id)
+      return user
+    } catch (err) {
+      if (err.code === 'USER_NOT_FOUND') {
+        return error(404, 'User not found')
+      }
+      throw err // Let global error handler deal with it
+    }
+  })
+  .onError(({ error, set }) => {
+    set.status = 500
+    console.error('Unhandled error:', error)
+    return { error: 'Internal server error' }
+  })
+  .listen(3000)
+```
+
+## Error logging
+
+Integrate error logging:
+
+```typescript
+const app = new Elysia()
+  .decorate('logger', {
+    error: (message: string, error: Error) => {
+      console.error(`[ERROR] ${message}`, {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      })
+    }
+  })
+  .onError(({ code, error, logger, set }) => {
+    logger.error(`Error occurred: ${code}`, error)
+    
+    set.status = 500
+    return {
+      error: 'An error occurred',
+      requestId: generateRequestId()
+    }
+  })
+  .listen(3000)
+```
+
+## Complete error handling example
+
+```typescript
+import { Elysia, t, NotFoundError, InternalServerError } from 'elysia'
+
+const app = new Elysia()
+  .state('users', new Map())
+  
+  // Global error handler
+  .onError(({ code, error, set, path }) => {
+    const timestamp = new Date().toISOString()
+    
+    console.error(`[${timestamp}] ${code} at ${path}:`, error.message)
+    
+    switch (code) {
+      case 'VALIDATION':
+        set.status = 422
+        return {
+          success: false,
+          error: 'Validation failed',
+          fields: error.all?.map(e => ({
+            field: e.path,
+            message: e.summary
+          })),
+          timestamp
+        }
+      
+      case 'NOT_FOUND':
+        set.status = 404
+        return {
+          success: false,
+          error: error.message || 'Resource not found',
+          timestamp
+        }
+      
+      case 'PARSE':
+        set.status = 400
+        return {
+          success: false,
+          error: 'Invalid request body',
+          timestamp
+        }
+      
+      default:
+        set.status = 500
+        return {
+          success: false,
+          error: 'Internal server error',
+          timestamp
+        }
+    }
+  })
+  
+  .get('/users/:id', ({ params, store, error }) => {
+    const user = store.users.get(params.id)
+    
+    if (!user) {
+      throw new NotFoundError(`User ${params.id} not found`)
+    }
+    
+    return { success: true, data: user }
+  })
+  
+  .post('/users', ({ body, store }) => {
+    const id = generateId()
+    store.users.set(id, body)
+    
+    return {
+      success: true,
+      data: { id, ...body }
+    }
+  }, {
+    body: t.Object({
+      name: t.String({ minLength: 2 }),
+      email: t.String({ format: 'email' }),
+      age: t.Number({ minimum: 0, maximum: 150 })
+    })
+  })
+  
+  .delete('/users/:id', ({ params, store, error }) => {
+    if (!store.users.has(params.id)) {
+      throw new NotFoundError(`User ${params.id} not found`)
+    }
+    
+    store.users.delete(params.id)
+    return { success: true }
+  })
+  
+  .listen(3000)
+```
+
+<Tip>
+The error handler receives the full context, including `set`, `store`, and other context properties, allowing you to access application state during error handling.
+</Tip>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Use specific error types">
+    Throw specific error types (NotFoundError, ValidationError) rather than generic Error for better error handling.
+  </Accordion>
+  
+  <Accordion title="Differentiate environments">
+    Show detailed errors in development but sanitize error messages in production to avoid leaking sensitive information.
+  </Accordion>
+  
+  <Accordion title="Log errors">
+    Always log errors with sufficient context (timestamp, path, user info) for debugging.
+  </Accordion>
+  
+  <Accordion title="Return consistent format">
+    Use a consistent error response format across your API for easier client-side handling.
+  </Accordion>
+  
+  <Accordion title="Handle validation errors">
+    Provide clear, actionable feedback for validation errors to help users correct their input.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+Be careful not to expose sensitive information (stack traces, internal paths, database errors) in production error responses.
+</Warning>

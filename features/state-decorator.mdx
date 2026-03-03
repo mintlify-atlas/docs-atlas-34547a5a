@@ -1,0 +1,305 @@
+---
+title: "State and decorators"
+description: "Manage global state and extend context with custom properties"
+---
+
+## Overview
+
+Elysia provides two powerful mechanisms for managing application-level data and extending the context object:
+
+- **State**: Mutable global store accessible across all routes
+- **Decorators**: Custom properties added to the context object
+
+## State
+
+State creates a mutable global store that can be accessed and modified across all route handlers.
+
+### Basic usage
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .state('counter', 0)
+  .get('/increment', ({ store }) => {
+    store.counter++
+    return store.counter
+  })
+  .get('/count', ({ store }) => store.counter)
+  .listen(3000)
+```
+
+### Multiple state values
+
+You can define multiple state values by chaining `.state()` calls:
+
+```typescript
+const app = new Elysia()
+  .state('name', 'Elysia')
+  .state('version', '1.0.0')
+  .state('build', 0)
+  .get('/info', ({ store }) => ({
+    name: store.name,
+    version: store.version,
+    build: store.build
+  }))
+  .listen(3000)
+```
+
+### Type-safe state
+
+Elysia automatically infers state types:
+
+```typescript
+const app = new Elysia()
+  .state('users', new Map<string, { name: string; age: number }>())
+  .get('/users/:id', ({ store, params }) => {
+    const user = store.users.get(params.id)
+    return user ?? { error: 'User not found' }
+  })
+  .post('/users/:id', ({ store, params, body }) => {
+    store.users.set(params.id, body)
+    return { success: true }
+  }, {
+    body: t.Object({
+      name: t.String(),
+      age: t.Number()
+    })
+  })
+  .listen(3000)
+```
+
+### State from example
+
+Based on the source code example (`example/store.ts:4-6`):
+
+```typescript
+import { Elysia } from 'elysia'
+
+new Elysia()
+  .state('name', 'Fubuki')
+  .get('/id/:id', ({ params: { id }, store: { name } }) => `${id} ${name}`)
+  .listen(3000)
+```
+
+## Decorators
+
+Decorators add custom properties to the context object, making them available in all route handlers.
+
+### Basic usage
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .decorate('getDate', () => new Date().toISOString())
+  .get('/time', ({ getDate }) => getDate())
+  .listen(3000)
+```
+
+### Adding multiple decorators
+
+```typescript
+const app = new Elysia()
+  .decorate('db', database)
+  .decorate('logger', logger)
+  .decorate('config', config)
+  .get('/users', async ({ db }) => {
+    return await db.users.findMany()
+  })
+  .listen(3000)
+```
+
+### Function decorators
+
+Decorators can be functions that are called within route handlers:
+
+```typescript
+const app = new Elysia()
+  .decorate('formatResponse', (data: any) => ({
+    success: true,
+    data,
+    timestamp: Date.now()
+  }))
+  .get('/users', ({ formatResponse }) => 
+    formatResponse(['Alice', 'Bob'])
+  )
+  .listen(3000)
+```
+
+## Derive
+
+Derive creates computed properties based on the context, executed on each request:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .state('counter', 0)
+  .derive(({ store }) => ({
+    increase() {
+      store.counter++
+    }
+  }))
+  .derive(({ store }) => ({
+    doubled: store.counter * 2,
+    tripled: store.counter * 3
+  }))
+  .get('/', ({ increase, store }) => {
+    increase()
+    const { counter, doubled, tripled } = store
+    
+    return {
+      counter,
+      doubled,
+      tripled
+    }
+  })
+  .listen(3000)
+```
+
+This example is from `example/derive.ts:3-28` and shows how derive can:
+- Add methods to the context
+- Create computed properties from state
+- Chain multiple derivations
+
+### Derive with authentication
+
+```typescript
+const app = new Elysia()
+  .derive(({ headers }) => {
+    const token = headers.authorization?.replace('Bearer ', '')
+    return {
+      userId: decodeToken(token)?.userId
+    }
+  })
+  .get('/profile', ({ userId }) => {
+    if (!userId) {
+      return { error: 'Unauthorized' }
+    }
+    return { userId }
+  })
+  .listen(3000)
+```
+
+## State vs Decorators vs Derive
+
+<CardGroup cols={3}>
+  <Card title="State" icon="database">
+    **Mutable** global store
+    
+    - Shared across all requests
+    - Can be modified
+    - Persists between requests
+  </Card>
+  
+  <Card title="Decorators" icon="puzzle-piece">
+    **Immutable** context additions
+    
+    - Added once at startup
+    - Same instance for all requests
+    - Good for services, config
+  </Card>
+  
+  <Card title="Derive" icon="bolt">
+    **Computed** per request
+    
+    - Executed on each request
+    - Can access request context
+    - Good for auth, parsing
+  </Card>
+</CardGroup>
+
+## Scoping
+
+State, decorators, and derive can be scoped to plugins:
+
+```typescript
+const plugin = new Elysia()
+  .state('plugin-state', 'value')
+  .decorate('pluginHelper', () => 'helper')
+
+const app = new Elysia()
+  .use(plugin)
+  .get('/test', ({ store, pluginHelper }) => ({
+    state: store['plugin-state'],
+    helper: pluginHelper()
+  }))
+  .listen(3000)
+```
+
+## Real-world example
+
+Combining state, decorators, and derive for a complete application:
+
+```typescript
+import { Elysia } from 'elysia'
+
+interface Session {
+  userId: string
+  createdAt: number
+}
+
+const app = new Elysia()
+  // Global state
+  .state('sessions', new Map<string, Session>())
+  .state('requestCount', 0)
+  
+  // Decorators for services
+  .decorate('logger', {
+    info: (msg: string) => console.log(`[INFO] ${msg}`),
+    error: (msg: string) => console.error(`[ERROR] ${msg}`)
+  })
+  
+  // Derive authentication info per request
+  .derive(({ headers, store, logger }) => {
+    store.requestCount++
+    
+    const sessionId = headers['x-session-id']
+    const session = sessionId ? store.sessions.get(sessionId) : null
+    
+    if (session) {
+      logger.info(`Session found: ${session.userId}`)
+    }
+    
+    return { session }
+  })
+  
+  .get('/stats', ({ store }) => ({
+    activeSessions: store.sessions.size,
+    totalRequests: store.requestCount
+  }))
+  
+  .get('/profile', ({ session, error }) => {
+    if (!session) {
+      return error(401, 'No active session')
+    }
+    return { userId: session.userId }
+  })
+  
+  .listen(3000)
+```
+
+<Warning>
+State is mutable and shared across all requests. Be careful with concurrent access and consider using proper locking mechanisms for critical operations.
+</Warning>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Keep state minimal">
+    Store only what you need globally. Consider using databases or external state management for larger datasets.
+  </Accordion>
+  
+  <Accordion title="Use decorators for services">
+    Database connections, loggers, and configuration are perfect candidates for decorators.
+  </Accordion>
+  
+  <Accordion title="Derive for per-request data">
+    Use derive for authentication, request parsing, and other per-request computations.
+  </Accordion>
+  
+  <Accordion title="Type safety">
+    Let TypeScript infer your types automatically for better type safety and autocomplete.
+  </Accordion>
+</AccordionGroup>

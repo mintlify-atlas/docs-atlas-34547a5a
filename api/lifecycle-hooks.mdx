@@ -1,0 +1,395 @@
+---
+title: Lifecycle hooks
+description: Lifecycle hooks API reference for request processing
+---
+
+Lifecycle hooks allow you to intercept and process requests at different stages of the request lifecycle.
+
+## Request lifecycle order
+
+Requests flow through hooks in this order:
+
+1. **onStart** - Server initialization (once)
+2. **onRequest** - New request received
+3. **onParse** - Parse request body
+4. **onTransform** - Transform request data
+5. **resolve** - Resolve derived values before validation
+6. **onBeforeHandle** - Execute before main handler
+7. **Handler** - Main route handler
+8. **onAfterHandle** - Transform response
+9. **mapResponse** - Map response value
+10. **onAfterResponse** - After response is sent
+11. **onError** - Handle errors (if thrown)
+12. **onStop** - Server shutdown (once)
+
+## Server lifecycle
+
+### onStart()
+
+Called once when the server starts.
+
+```typescript
+app.onStart(({ server }) => {
+  console.log(`Server running at ${server?.hostname}:${server?.port}`)
+})
+```
+
+<ParamField path="handler" type="(app: Elysia) => void | Promise<void>" required>
+  Callback executed when server starts
+  
+  <Expandable title="handler parameters">
+    <ParamField path="server" type="Server | null">
+      The server instance
+    </ParamField>
+    <ParamField path="store" type="Record<string, unknown>">
+      Application state
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### onStop()
+
+Called once when the server stops.
+
+```typescript
+app.onStop(async ({ server }) => {
+  await cleanupResources()
+  console.log('Server stopped')
+})
+```
+
+<ParamField path="handler" type="(app: Elysia) => void | Promise<void>" required>
+  Callback executed when server stops
+</ParamField>
+
+## Request lifecycle
+
+### onRequest()
+
+Called when a new request is received, before any processing.
+
+```typescript
+app.onRequest(({ request, set }) => {
+  console.log(`${request.method} ${request.url}`)
+  set.headers['X-Request-Id'] = crypto.randomUUID()
+})
+```
+
+<ParamField path="handler" type="PreHandler" required>
+  Function called for every incoming request
+  
+  <Expandable title="context properties">
+    <ParamField path="request" type="Request">
+      Web API Request object
+    </ParamField>
+    <ParamField path="set" type="Set">
+      Response properties
+    </ParamField>
+    <ParamField path="store" type="Record<string, unknown>">
+      Application state
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Hook scope (local, scoped, or global)
+</ParamField>
+
+### onParse()
+
+Custom body parser that runs before validation.
+
+```typescript
+app.onParse(({ request, contentType }) => {
+  if (contentType === 'application/custom') {
+    return request.text().then(text => parseCustomFormat(text))
+  }
+})
+```
+
+<ParamField path="parser" type="BodyHandler" required>
+  Body parser function
+  
+  <Expandable title="handler parameters">
+    <ParamField path="request" type="Request">
+      Web API Request object
+    </ParamField>
+    <ParamField path="contentType" type="string">
+      Content-Type header value
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Return value**: If a truthy value is returned, it becomes `context.body`. Otherwise, the next parser is tried.
+
+### onTransform()
+
+Transform request data before validation.
+
+```typescript
+app.onTransform(({ params }) => {
+  if (params.id) {
+    params.id = parseInt(params.id)
+  }
+})
+```
+
+<ParamField path="handler" type="TransformHandler" required>
+  Function to transform context before validation
+  
+  <Expandable title="context properties">
+    All standard context properties are available but not yet validated.
+  </Expandable>
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Hook scope
+</ParamField>
+
+### resolve()
+
+Derive values after validation but before the handler. Similar to `derive()` but runs after validation.
+
+```typescript
+app
+  .resolve(async ({ headers }) => {
+    const user = await authenticateUser(headers.authorization)
+    return { user }
+  })
+  .get('/profile', ({ user }) => user)
+```
+
+<ParamField path="resolver" type="(context: Context) => Record<string, unknown> | Promise<Record<string, unknown>>" required>
+  Function that derives new context properties
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Resolver scope
+</ParamField>
+
+**Error handling**: If an error is thrown, execution jumps to the error handler.
+
+### onBeforeHandle()
+
+Execute logic after validation but before the main handler.
+
+```typescript
+app.onBeforeHandle(({ headers, set }) => {
+  if (!headers.authorization) {
+    set.status = 401
+    return { error: 'Unauthorized' }
+  }
+})
+```
+
+<ParamField path="handler" type="OptionalHandler" required>
+  Function executed before the main route handler
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Hook scope
+</ParamField>
+
+**Return value**: If a truthy value is returned, it becomes the response and the main handler is skipped.
+
+### onAfterHandle()
+
+Transform the response from the handler.
+
+```typescript
+app.onAfterHandle(({ response }) => {
+  return {
+    data: response,
+    timestamp: Date.now()
+  }
+})
+```
+
+<ParamField path="handler" type="AfterHandler" required>
+  Function to transform the handler response
+  
+  <Expandable title="context properties">
+    <ParamField path="response" type="unknown">
+      The value returned from the route handler
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Hook scope
+</ParamField>
+
+**Return value**: The returned value replaces the original response.
+
+### mapResponse()
+
+Map the response value before validation.
+
+```typescript
+app.mapResponse(({ response }) => {
+  if (typeof response === 'string') {
+    return { message: response }
+  }
+  return response
+})
+```
+
+<ParamField path="handler" type="MapResponse" required>
+  Function to map response value
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Hook scope
+</ParamField>
+
+### onAfterResponse()
+
+Execute code after the response has been sent to the client.
+
+```typescript
+app.onAfterResponse(({ request, response }) => {
+  console.log(`${request.method} ${request.url} completed`)
+  logAnalytics({ request, response })
+})
+```
+
+<ParamField path="handler" type="AfterResponseHandler" required>
+  Function executed after response is sent
+  
+  <Expandable title="context properties">
+    <ParamField path="response" type="unknown" deprecated>
+      Deprecated: use `responseValue` instead
+    </ParamField>
+    <ParamField path="responseValue" type="unknown">
+      The final response value that was sent
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="options" type="{ as: 'local' | 'scoped' | 'global' }" optional>
+  Hook scope
+</ParamField>
+
+**Note**: This hook cannot modify the response as it has already been sent.
+
+## Error handling
+
+### onError()
+
+Handle errors thrown during request processing.
+
+```typescript
+app.onError(({ code, error, set }) => {
+  console.error(code, error)
+  
+  if (code === 'VALIDATION') {
+    set.status = 422
+    return { error: 'Validation failed', details: error.all }
+  }
+  
+  if (code === 'NOT_FOUND') {
+    set.status = 404
+    return { error: 'Route not found' }
+  }
+  
+  set.status = 500
+  return { error: 'Internal Server Error' }
+})
+```
+
+<ParamField path="handler" type="ErrorHandler" required>
+  Error handler function
+  
+  <Expandable title="context properties">
+    <ParamField path="code" type="string">
+      Error code: 'VALIDATION', 'NOT_FOUND', 'PARSE', 'INTERNAL_SERVER_ERROR', 'UNKNOWN', or custom error codes
+    </ParamField>
+    
+    <ParamField path="error" type="Error">
+      The error object that was thrown
+    </ParamField>
+    
+    <ParamField path="set" type="Set">
+      Response properties to set status and headers
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Error codes**:
+
+- `VALIDATION` - Schema validation failed
+- `NOT_FOUND` - Route not found
+- `PARSE` - Body parsing failed
+- `INTERNAL_SERVER_ERROR` - Unhandled server error
+- `INVALID_COOKIE_SIGNATURE` - Cookie signature validation failed
+- `INVALID_FILE_TYPE` - File type validation failed
+- `UNKNOWN` - Unknown error
+
+## Hook scopes
+
+Hooks can be registered at different scopes using the `as` option:
+
+### Local scope
+
+Applies only to routes defined after the hook in the current instance.
+
+```typescript
+app.onBeforeHandle({ as: 'local' }, () => {
+  console.log('Local hook')
+})
+```
+
+### Scoped scope
+
+Applies to routes in the current instance and instances that use this as a plugin.
+
+```typescript
+app.onBeforeHandle({ as: 'scoped' }, () => {
+  console.log('Scoped hook')
+})
+```
+
+### Global scope
+
+Applies to all routes including those in parent instances.
+
+```typescript
+app.onBeforeHandle({ as: 'global' }, () => {
+  console.log('Global hook')
+})
+```
+
+## Multiple hooks
+
+You can register multiple hooks of the same type. They execute in registration order.
+
+```typescript
+app
+  .onBeforeHandle(() => {
+    console.log('First')
+  })
+  .onBeforeHandle(() => {
+    console.log('Second')
+  })
+```
+
+You can also pass an array of handlers:
+
+```typescript
+app.onBeforeHandle([handler1, handler2, handler3])
+```
+
+## Route-specific hooks
+
+Hooks can be applied to specific routes using the third parameter:
+
+```typescript
+app.get('/protected', handler, {
+  beforeHandle: ({ headers, set }) => {
+    if (!headers.authorization) {
+      set.status = 401
+      return { error: 'Unauthorized' }
+    }
+  }
+})
+```

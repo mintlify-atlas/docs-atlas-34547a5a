@@ -1,0 +1,480 @@
+---
+title: "Macros"
+description: "Extend Elysia's type system and runtime with custom properties and validation"
+---
+
+Macros allow you to extend Elysia's schema system with custom properties that provide both runtime behavior and compile-time type inference. They enable creating domain-specific schema extensions while maintaining full type safety.
+
+## What are macros?
+
+Macros are meta-programming tools that transform schema definitions at compile time, adding custom validation, transformation, or type information.
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .macro(({ onBeforeHandle }) => ({
+    // Define custom schema properties
+    role(role: 'admin' | 'user') {
+      onBeforeHandle(({ error, user }) => {
+        if (user.role !== role)
+          return error(403, 'Forbidden')
+      })
+    }
+  }))
+  .get('/admin', () => 'Admin only', {
+    role: 'admin' // Custom schema property
+  })
+```
+
+## Defining macros
+
+Macros are defined using the `.macro()` method:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .macro(({ onBeforeHandle, onAfterHandle }) => ({
+    // Example: Rate limiting macro
+    rateLimit(limit: number) {
+      const requests = new Map<string, number[]>()
+      
+      onBeforeHandle(({ request, error }) => {
+        const ip = request.headers.get('x-forwarded-for') ?? 'unknown'
+        const now = Date.now()
+        const window = 60000 // 1 minute
+        
+        const userRequests = requests.get(ip) ?? []
+        const recentRequests = userRequests.filter(t => now - t < window)
+        
+        if (recentRequests.length >= limit) {
+          return error(429, 'Too many requests')
+        }
+        
+        requests.set(ip, [...recentRequests, now])
+      })
+    },
+    
+    // Example: Response transformation
+    transform(fn: (value: unknown) => unknown) {
+      onAfterHandle(({ response }) => {
+        return fn(response)
+      })
+    }
+  }))
+```
+
+## Macro lifecycle hooks
+
+Macros have access to all lifecycle hooks:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .macro((hooks) => {
+    // Available hooks:
+    const {
+      onParse,
+      onTransform,
+      onBeforeHandle,
+      onAfterHandle,
+      onError,
+      onResponse
+    } = hooks
+    
+    return {
+      log(message: string) {
+        onBeforeHandle(() => {
+          console.log(`[Before] ${message}`)
+        })
+        
+        onAfterHandle(() => {
+          console.log(`[After] ${message}`)
+        })
+      }
+    }
+  })
+  .get('/test', () => 'Hello', {
+    log: 'Test endpoint called'
+  })
+```
+
+## Type-safe macros
+
+Macros are fully integrated with TypeScript's type system:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .macro(() => ({
+    // Macro with typed parameters
+    cache(options: { ttl: number; key?: string }) {
+      const cache = new Map<string, { value: unknown; expires: number }>()
+      
+      return {
+        onBeforeHandle({ request, response }) {
+          const key = options.key ?? request.url
+          const cached = cache.get(key)
+          
+          if (cached && cached.expires > Date.now()) {
+            return cached.value
+          }
+        },
+        onAfterHandle({ response }) {
+          const key = options.key ?? 'default'
+          cache.set(key, {
+            value: response,
+            expires: Date.now() + options.ttl
+          })
+        }
+      }
+    }
+  }))
+  .get('/data', () => ({ data: 'expensive computation' }), {
+    cache: { ttl: 60000 } // Type-checked
+  })
+```
+
+## Macro composition
+
+Macros can be composed and reused across routes:
+
+```typescript
+import { Elysia } from 'elysia'
+
+// Define reusable macros
+const authMacro = new Elysia()
+  .macro(({ onBeforeHandle }) => ({
+    auth(required = true) {
+      onBeforeHandle(({ headers, error }) => {
+        if (required && !headers.authorization) {
+          return error(401, 'Unauthorized')
+        }
+      })
+    }
+  }))
+
+const validationMacro = new Elysia()
+  .macro(({ onBeforeHandle }) => ({
+    validate(schema: Record<string, unknown>) {
+      onBeforeHandle(({ body, error }) => {
+        for (const [key, value] of Object.entries(schema)) {
+          if (!(key in (body as Record<string, unknown>))) {
+            return error(400, `Missing field: ${key}`)
+          }
+        }
+      })
+    }
+  }))
+
+// Use composed macros
+const app = new Elysia()
+  .use(authMacro)
+  .use(validationMacro)
+  .post('/protected', ({ body }) => body, {
+    auth: true,
+    validate: { name: 'string', email: 'string' }
+  })
+```
+
+## Context-aware macros
+
+Macros can access and modify the request context:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .decorate('metrics', {
+    requests: 0,
+    errors: 0
+  })
+  .macro(({ onBeforeHandle, onAfterHandle, onError }) => ({
+    track(name: string) {
+      onBeforeHandle(({ metrics, store }) => {
+        metrics.requests++
+        store.startTime = Date.now()
+      })
+      
+      onAfterHandle(({ store }) => {
+        const duration = Date.now() - (store.startTime as number)
+        console.log(`${name} took ${duration}ms`)
+      })
+      
+      onError(({ metrics }) => {
+        metrics.errors++
+      })
+    }
+  }))
+  .get('/api', () => 'Response', {
+    track: 'API Call'
+  })
+```
+
+## Schema macros
+
+Macros can modify or validate schemas:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .macro(() => ({
+    // Add default schema behavior
+    strict(enabled = true) {
+      return {
+        schema: {
+          additionalProperties: !enabled
+        }
+      }
+    },
+    
+    // Transform response format
+    paginated(pageSize = 10) {
+      return {
+        onAfterHandle({ response }) {
+          if (Array.isArray(response)) {
+            return {
+              data: response.slice(0, pageSize),
+              pageSize,
+              total: response.length
+            }
+          }
+          return response
+        }
+      }
+    }
+  }))
+  .get('/items', () => [1, 2, 3, 4, 5], {
+    paginated: 3
+  })
+  // Returns: { data: [1, 2, 3], pageSize: 3, total: 5 }
+```
+
+## Macro metadata
+
+Macros can store metadata for documentation or tooling:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .macro(() => ({
+    // Documentation macro
+    tag(...tags: string[]) {
+      return {
+        detail: {
+          tags
+        }
+      }
+    },
+    
+    // Deprecation macro
+    deprecated(message?: string) {
+      return {
+        detail: {
+          deprecated: true,
+          description: message ?? 'This endpoint is deprecated'
+        }
+      }
+    }
+  }))
+  .get('/old-api', () => 'Legacy response', {
+    deprecated: 'Use /v2/api instead',
+    tag: 'legacy', 'deprecated'
+  })
+```
+
+## Performance macros
+
+Macros for performance monitoring and optimization:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .macro(({ onBeforeHandle, onAfterHandle }) => ({
+    // Performance monitoring
+    benchmark(label: string) {
+      onBeforeHandle(({ store }) => {
+        store.benchmarkStart = performance.now()
+        console.time(label)
+      })
+      
+      onAfterHandle(({ store }) => {
+        console.timeEnd(label)
+        const elapsed = performance.now() - (store.benchmarkStart as number)
+        
+        if (elapsed > 1000) {
+          console.warn(`⚠️ Slow endpoint: ${label} (${elapsed}ms)`)
+        }
+      })
+    },
+    
+    // Response compression hint
+    compress(minSize = 1024) {
+      onAfterHandle(({ response, set }) => {
+        const size = JSON.stringify(response).length
+        if (size >= minSize) {
+          set.headers['content-encoding'] = 'gzip'
+        }
+      })
+    }
+  }))
+  .get('/heavy', () => ({ data: new Array(1000).fill('data') }), {
+    benchmark: 'Heavy endpoint',
+    compress: 500
+  })
+```
+
+## Error handling macros
+
+Create custom error handling logic:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .macro(({ onError }) => ({
+    retry(maxAttempts = 3) {
+      return {
+        onError({ error, request, set }) {
+          const attempts = parseInt(
+            request.headers.get('x-retry-count') ?? '0'
+          )
+          
+          if (attempts < maxAttempts) {
+            set.headers['x-retry-count'] = String(attempts + 1)
+            // Trigger retry logic
+          } else {
+            return error
+          }
+        }
+      }
+    },
+    
+    fallback(value: unknown) {
+      return {
+        onError() {
+          return value
+        }
+      }
+    }
+  }))
+  .get('/unreliable', () => {
+    if (Math.random() > 0.5) throw new Error('Random failure')
+    return 'Success'
+  }, {
+    retry: 3,
+    fallback: { error: 'Service temporarily unavailable' }
+  })
+```
+
+## Macro scope
+
+Macros can be scoped to specific routes or groups:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  // Global macro
+  .macro(() => ({
+    global(value: string) {
+      console.log('Global:', value)
+    }
+  }))
+  // Scoped macros
+  .group('/admin', (app) =>
+    app
+      .macro(() => ({
+        adminOnly() {
+          // Only available in /admin routes
+        }
+      }))
+      .get('/users', () => 'Users', {
+        adminOnly: true
+      })
+  )
+```
+
+## Best practices
+
+### Keep macros focused
+
+```typescript
+// Good: Single responsibility
+.macro(() => ({
+  rateLimit(limit: number) {
+    // Only handles rate limiting
+  }
+}))
+
+// Avoid: Multiple responsibilities
+.macro(() => ({
+  everything(options: ComplexOptions) {
+    // Too many concerns
+  }
+}))
+```
+
+### Type your macro parameters
+
+```typescript
+// Good: Typed parameters
+.macro(() => ({
+  timeout(ms: number) {
+    // TypeScript enforces number type
+  }
+}))
+
+// Avoid: Untyped parameters
+.macro(() => ({
+  timeout(ms: any) {
+    // No type safety
+  }
+}))
+```
+
+### Document macro behavior
+
+```typescript
+/**
+ * Rate limiting macro
+ * 
+ * @param limit - Maximum requests per minute
+ * @example
+ * ```ts
+ * .get('/api', handler, { rateLimit: 100 })
+ * ```
+ */
+.macro(() => ({
+  rateLimit(limit: number) {
+    // Implementation
+  }
+}))
+```
+
+### Compose macros for reusability
+
+```typescript
+// Create macro library
+const macros = new Elysia()
+  .macro(() => ({
+    auth() { /* ... */ },
+    rateLimit(n: number) { /* ... */ },
+    cache(ttl: number) { /* ... */ }
+  }))
+
+// Reuse across apps
+const app = new Elysia()
+  .use(macros)
+  .get('/protected', handler, {
+    auth: true,
+    rateLimit: 100,
+    cache: 60000
+  })
+```

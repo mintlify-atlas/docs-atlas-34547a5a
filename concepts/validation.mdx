@@ -1,0 +1,533 @@
+---
+title: Schema validation
+description: Learn how to validate request data in Elysia.js using TypeBox schemas
+---
+
+Elysia provides runtime schema validation using TypeBox, ensuring your application receives correctly formatted and typed data. Validation happens automatically before your route handler executes.
+
+## Overview
+
+Validation in Elysia uses TypeBox schemas to define expected data shapes. When validation fails, Elysia returns a 400 error with detailed information about what went wrong.
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .post('/users', ({ body }) => {
+    // body is validated and typed
+    return { id: 1, ...body }
+  }, {
+    body: t.Object({
+      name: t.String(),
+      email: t.String()
+    })
+  })
+```
+
+## Schema types
+
+Elysia uses TypeBox's `t` namespace for schema definitions.
+
+### Primitives
+
+```typescript
+import { t } from 'elysia'
+
+// String
+t.String()
+
+// Number
+t.Number()
+
+// Boolean
+t.Boolean()
+
+// Null
+t.Null()
+
+// Undefined
+t.Undefined()
+```
+
+### Objects
+
+Define object structures:
+
+```typescript
+app.post('/users', ({ body }) => body, {
+  body: t.Object({
+    name: t.String(),
+    age: t.Number(),
+    email: t.String(),
+    isActive: t.Boolean()
+  })
+})
+```
+
+### Arrays
+
+Validate arrays and their items:
+
+```typescript
+app.post('/tags', ({ body }) => body, {
+  body: t.Object({
+    tags: t.Array(t.String())
+  })
+})
+
+// Array of objects
+app.post('/users', ({ body }) => body, {
+  body: t.Array(
+    t.Object({
+      name: t.String(),
+      email: t.String()
+    })
+  )
+})
+```
+
+### Optional fields
+
+Make properties optional:
+
+```typescript
+app.post('/users', ({ body }) => body, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String(),
+    bio: t.Optional(t.String()),
+    age: t.Optional(t.Number())
+  })
+})
+```
+
+### Nested objects
+
+Create complex nested structures:
+
+```typescript
+app.post('/profile', ({ body }) => body, {
+  body: t.Object({
+    user: t.Object({
+      name: t.String(),
+      email: t.String()
+    }),
+    address: t.Object({
+      street: t.String(),
+      city: t.String(),
+      zipCode: t.String()
+    })
+  })
+})
+```
+
+## Validation targets
+
+Validate different parts of the request:
+
+### Body validation
+
+```typescript
+app.post('/users', ({ body }) => body, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String()
+  })
+})
+```
+
+### Query validation
+
+```typescript
+app.get('/search', ({ query }) => query, {
+  query: t.Object({
+    q: t.String(),
+    limit: t.Optional(t.Number()),
+    offset: t.Optional(t.Number())
+  })
+})
+```
+
+### Params validation
+
+```typescript
+app.get('/users/:id', ({ params }) => params, {
+  params: t.Object({
+    id: t.Number()
+  })
+})
+```
+
+### Headers validation
+
+```typescript
+app.get('/api/data', ({ headers }) => headers, {
+  headers: t.Object({
+    authorization: t.String(),
+    'content-type': t.Optional(t.String())
+  })
+})
+```
+
+### Cookie validation
+
+```typescript
+app.get('/profile', ({ cookie }) => cookie, {
+  cookie: t.Object({
+    sessionId: t.String()
+  })
+})
+```
+
+### Response validation
+
+Validate responses to ensure API consistency:
+
+```typescript
+app.get('/users/:id', ({ params }) => {
+  return {
+    id: 1,
+    name: 'Alice',
+    email: 'alice@example.com'
+  }
+}, {
+  params: t.Object({
+    id: t.Number()
+  }),
+  response: t.Object({
+    id: t.Number(),
+    name: t.String(),
+    email: t.String()
+  })
+})
+```
+
+## Advanced types
+
+### String formats
+
+Validate string patterns:
+
+```typescript
+app.post('/users', ({ body }) => body, {
+  body: t.Object({
+    email: t.String({ format: 'email' }),
+    url: t.String({ format: 'uri' }),
+    uuid: t.String({ format: 'uuid' }),
+    date: t.String({ format: 'date' }),
+    time: t.String({ format: 'time' })
+  })
+})
+```
+
+### String constraints
+
+Add min/max length and patterns:
+
+```typescript
+app.post('/users', ({ body }) => body, {
+  body: t.Object({
+    username: t.String({ 
+      minLength: 3, 
+      maxLength: 20 
+    }),
+    password: t.String({ 
+      minLength: 8,
+      pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)' 
+    })
+  })
+})
+```
+
+### Numeric constraints
+
+Set boundaries for numbers:
+
+```typescript
+app.post('/product', ({ body }) => body, {
+  body: t.Object({
+    price: t.Number({ minimum: 0 }),
+    quantity: t.Integer({ minimum: 1, maximum: 100 }),
+    rating: t.Number({ minimum: 0, maximum: 5 })
+  })
+})
+```
+
+### Enums
+
+Restrict values to a specific set:
+
+```typescript
+app.post('/users', ({ body }) => body, {
+  body: t.Object({
+    role: t.Union([
+      t.Literal('admin'),
+      t.Literal('user'),
+      t.Literal('guest')
+    ]),
+    status: t.String({ 
+      enum: ['active', 'inactive', 'pending'] 
+    })
+  })
+})
+```
+
+### Union types
+
+Allow multiple types:
+
+```typescript
+app.post('/data', ({ body }) => body, {
+  body: t.Object({
+    value: t.Union([
+      t.String(),
+      t.Number(),
+      t.Boolean()
+    ])
+  })
+})
+```
+
+### Intersections
+
+Combine multiple schemas:
+
+```typescript
+const BaseUser = t.Object({
+  name: t.String(),
+  email: t.String()
+})
+
+const UserWithRole = t.Intersect([
+  BaseUser,
+  t.Object({
+    role: t.String()
+  })
+])
+
+app.post('/users', ({ body }) => body, {
+  body: UserWithRole
+})
+```
+
+## File upload validation
+
+Validate file uploads:
+
+```typescript
+app.post('/upload', ({ body }) => {
+  return { 
+    filename: body.file.name,
+    size: body.file.size 
+  }
+}, {
+  body: t.Object({
+    file: t.File(),
+    description: t.Optional(t.String())
+  })
+})
+
+// Multiple files
+app.post('/upload-multiple', ({ body }) => body, {
+  body: t.Object({
+    files: t.Files()
+  })
+})
+```
+
+## Reusable schemas
+
+Define schemas once and reuse them:
+
+```typescript
+const UserSchema = t.Object({
+  name: t.String(),
+  email: t.String({ format: 'email' }),
+  age: t.Optional(t.Number({ minimum: 0 }))
+})
+
+app
+  .post('/users', ({ body }) => body, {
+    body: UserSchema
+  })
+  .put('/users/:id', ({ body }) => body, {
+    body: UserSchema
+  })
+```
+
+### Model definition
+
+Register models globally:
+
+```typescript
+const app = new Elysia()
+  .model({
+    user: t.Object({
+      name: t.String(),
+      email: t.String()
+    }),
+    post: t.Object({
+      title: t.String(),
+      content: t.String()
+    })
+  })
+  .post('/users', ({ body }) => body, {
+    body: 'user'
+  })
+  .post('/posts', ({ body }) => body, {
+    body: 'post'
+  })
+```
+
+## Error handling
+
+Validation errors are automatically handled:
+
+```typescript
+app
+  .post('/users', ({ body }) => body, {
+    body: t.Object({
+      name: t.String(),
+      email: t.String({ format: 'email' })
+    })
+  })
+  .onError(({ code, error }) => {
+    if (code === 'VALIDATION') {
+      return {
+        error: 'Validation failed',
+        details: error.all
+      }
+    }
+  })
+```
+
+### Custom error messages
+
+Provide custom error messages:
+
+```typescript
+app.post('/users', ({ body }) => body, {
+  body: t.Object({
+    email: t.String({ 
+      format: 'email',
+      error: 'Invalid email format'
+    }),
+    age: t.Number({ 
+      minimum: 18,
+      error: 'Must be 18 or older'
+    })
+  })
+})
+```
+
+## Type inference
+
+Elysia automatically infers TypeScript types from schemas:
+
+```typescript
+app.post('/users', ({ body }) => {
+  // body is typed as { name: string; email: string }
+  const { name, email } = body
+  return { id: 1, name, email }
+}, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String()
+  })
+})
+```
+
+## Guard and group validation
+
+Apply validation to multiple routes:
+
+```typescript
+app.guard(
+  {
+    headers: t.Object({
+      authorization: t.String()
+    })
+  },
+  (app) =>
+    app
+      .get('/profile', ({ headers }) => headers)
+      .get('/settings', ({ headers }) => headers)
+)
+```
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Always validate user input">
+    Never trust client data. Always validate body, query, and params for user-facing endpoints.
+  </Accordion>
+  
+  <Accordion title="Use specific types">
+    Prefer specific types like `t.Integer()` over `t.Number()`, and use format validators for strings.
+  </Accordion>
+  
+  <Accordion title="Reuse schemas">
+    Define common schemas once and reuse them across routes using models.
+  </Accordion>
+  
+  <Accordion title="Validate responses in development">
+    Enable response validation during development to catch API contract violations early.
+  </Accordion>
+  
+  <Accordion title="Provide clear error messages">
+    Use custom error messages to help API consumers understand validation failures.
+  </Accordion>
+</AccordionGroup>
+
+## Common patterns
+
+<Tabs>
+  <Tab title="Pagination">
+    ```typescript
+    app.get('/items', ({ query }) => query, {
+      query: t.Object({
+        page: t.Number({ minimum: 1, default: 1 }),
+        limit: t.Number({ minimum: 1, maximum: 100, default: 10 })
+      })
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Search filters">
+    ```typescript
+    app.get('/products', ({ query }) => query, {
+      query: t.Object({
+        q: t.Optional(t.String()),
+        category: t.Optional(t.String()),
+        minPrice: t.Optional(t.Number({ minimum: 0 })),
+        maxPrice: t.Optional(t.Number({ minimum: 0 }))
+      })
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Partial updates">
+    ```typescript
+    const UserSchema = t.Object({
+      name: t.String(),
+      email: t.String(),
+      bio: t.String()
+    })
+    
+    app.patch('/users/:id', ({ body }) => body, {
+      body: t.Partial(UserSchema)
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Type system" icon="code" href="/advanced/type-safety">
+    Learn about Elysia's type system
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/features/error-handling">
+    Handle validation errors gracefully
+  </Card>
+</CardGroup>

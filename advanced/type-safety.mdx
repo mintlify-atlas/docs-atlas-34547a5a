@@ -1,0 +1,367 @@
+---
+title: "Type safety"
+description: "End-to-end type safety from request to response with TypeScript inference"
+---
+
+Elysia provides comprehensive end-to-end type safety through TypeScript's type inference system, ensuring compile-time safety across your entire request-response pipeline without runtime overhead.
+
+## Type inference
+
+Elysia automatically infers types from your schemas and handlers, providing full type safety without manual type annotations:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .get('/user/:id', ({ params }) => {
+    // params.id is automatically typed as string
+    return {
+      id: params.id,
+      name: 'John Doe'
+    }
+  }, {
+    params: t.Object({
+      id: t.String()
+    })
+  })
+```
+
+The type system automatically infers:
+- Path parameters from route patterns
+- Query parameters from schema definitions
+- Request body types
+- Response types
+- Headers and cookies
+
+## Schema validation and types
+
+Elysia uses TypeBox for schema definition and automatic type inference:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .post('/users', ({ body }) => {
+    // body is typed as { name: string; email: string; age: number }
+    return {
+      id: Math.random().toString(36),
+      ...body
+    }
+  }, {
+    body: t.Object({
+      name: t.String(),
+      email: t.String({ format: 'email' }),
+      age: t.Number({ minimum: 0 })
+    }),
+    response: t.Object({
+      id: t.String(),
+      name: t.String(),
+      email: t.String(),
+      age: t.Number()
+    })
+  })
+```
+
+## Standard Schema support
+
+Elysia supports Standard Schema v1, allowing you to use any validation library that implements the standard:
+
+```typescript
+import { Elysia } from 'elysia'
+import { z } from 'zod'
+import { v } from 'valibot'
+
+const app = new Elysia()
+  // Using Zod
+  .post('/zod', ({ body }) => body, {
+    body: z.object({
+      name: z.string(),
+      age: z.number()
+    })
+  })
+  // Using Valibot
+  .post('/valibot', ({ body }) => body, {
+    body: v.object({
+      name: v.string(),
+      age: v.number()
+    })
+  })
+```
+
+<Note>
+Standard Schema is defined with a `'~standard'` property containing type information for input and output values.
+</Note>
+
+## Type reconciliation
+
+Elysia's type system uses sophisticated reconciliation to merge types from plugins and decorators:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const plugin = new Elysia()
+  .decorate('db', database)
+  .derive(({ headers }) => ({
+    userId: headers['x-user-id']
+  }))
+
+const app = new Elysia()
+  .use(plugin)
+  .get('/profile', ({ db, userId }) => {
+    // Both db and userId are fully typed
+    return db.users.find(userId)
+  })
+```
+
+Type reconciliation handles:
+- **Decorator merging** - Combining decorators from multiple plugins
+- **Store inheritance** - Merging application state
+- **Derive context** - Composing derived values
+- **Resolve context** - Combining resolved dependencies
+
+## Path parameter typing
+
+Path parameters are automatically extracted and typed from route patterns:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/users/:id/posts/:postId', ({ params }) => {
+    // params: { id: string; postId: string }
+    return {
+      userId: params.id,
+      postId: params.postId
+    }
+  })
+  // Optional parameters
+  .get('/search/:query?', ({ params }) => {
+    // params: { query?: string }
+    return params.query ?? 'default'
+  })
+```
+
+## Response type inference
+
+Return types are automatically inferred from your handlers:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .get('/user', () => ({
+    id: '1',
+    name: 'John',
+    role: 'admin' as const
+  }))
+  // Response type: { id: string; name: string; role: 'admin' }
+
+  .get('/status', ({ set }) => {
+    set.status = 201
+    return { created: true }
+  })
+  // Handles status codes and response types
+```
+
+## Error type safety
+
+Error handlers are fully typed with error context:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .onError(({ code, error, set }) => {
+    // error is typed based on code
+    if (code === 'VALIDATION') {
+      set.status = 422
+      return {
+        type: 'validation',
+        errors: error.all
+      }
+    }
+
+    if (code === 'NOT_FOUND') {
+      set.status = 404
+      return { message: 'Resource not found' }
+    }
+  })
+```
+
+## Type coercion
+
+Elysia can automatically coerce types when `normalize` is enabled:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia({
+  normalize: true
+})
+  .get('/users', ({ query }) => {
+    // Query parameters are coerced to correct types
+    // ?page=1&limit=10 -> { page: number, limit: number }
+    return query
+  }, {
+    query: t.Object({
+      page: t.Number({ default: 1 }),
+      limit: t.Number({ default: 10 })
+    })
+  })
+```
+
+<Warning>
+Type coercion only works with Elysia schemas (TypeBox). Standard Schema validation libraries handle their own coercion.
+</Warning>
+
+## Plugin type composition
+
+Types compose automatically when using plugins:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const authPlugin = new Elysia()
+  .derive(({ headers }) => ({
+    user: headers['authorization'] ? { id: '1' } : null
+  }))
+
+const loggingPlugin = new Elysia()
+  .decorate('logger', console)
+
+const app = new Elysia()
+  .use(authPlugin)
+  .use(loggingPlugin)
+  .get('/protected', ({ user, logger }) => {
+    // user and logger are both fully typed
+    logger.log('Access by user:', user?.id)
+    return user
+  })
+```
+
+## Eden Treaty type inference
+
+Elysia's type system enables fully typed client-server communication:
+
+```typescript
+// server.ts
+import { Elysia, t } from 'elysia'
+
+export const app = new Elysia()
+  .get('/users/:id', ({ params }) => ({
+    id: params.id,
+    name: 'John'
+  }), {
+    params: t.Object({
+      id: t.String()
+    })
+  })
+
+export type App = typeof app
+
+// client.ts
+import { treaty } from '@elysiajs/eden'
+import type { App } from './server'
+
+const api = treaty<App>('localhost:3000')
+
+// Fully typed API calls
+const { data, error } = await api.users['123'].get()
+//      ^? { id: string; name: string }
+```
+
+## Type utilities
+
+Elysia exports type utilities for advanced use cases:
+
+```typescript
+import type { 
+  UnwrapSchema,
+  RouteSchema,
+  Context,
+  Handler 
+} from 'elysia'
+
+type MySchema = UnwrapSchema<
+  t.Object({ name: t.String() })
+>
+// Result: { name: string }
+```
+
+## Performance considerations
+
+Elysia's type system is designed for zero runtime overhead:
+
+- All type inference happens at compile time
+- No reflection or runtime type checking
+- Types are erased during compilation
+- Schema validation uses optimized compiled functions
+
+<Tip>
+For maximum performance with large schemas, enable `precompile` to compile schema validators ahead of time.
+</Tip>
+
+## Best practices
+
+### Define schemas explicitly
+
+While Elysia infers types, explicit schemas provide validation:
+
+```typescript
+// Good: Type safety + validation
+.post('/users', ({ body }) => body, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String({ format: 'email' })
+  })
+})
+
+// Avoid: No validation
+.post('/users', ({ body }) => body)
+```
+
+### Use typed errors
+
+Define error schemas for consistent error handling:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .model({
+    'error.validation': t.Object({
+      type: t.Literal('validation'),
+      errors: t.Array(t.Object({
+        field: t.String(),
+        message: t.String()
+      }))
+    })
+  })
+  .onError(({ code, error, set }) => {
+    if (code === 'VALIDATION') {
+      set.status = 422
+      return {
+        type: 'validation' as const,
+        errors: error.all
+      }
+    }
+  })
+```
+
+### Leverage type inference
+
+Let TypeScript infer types when possible:
+
+```typescript
+// Good: Type inferred from return
+.get('/user', () => ({
+  id: '1',
+  name: 'John'
+}))
+
+// Unnecessary: Manual type annotation
+.get('/user', (): { id: string; name: string } => ({
+  id: '1',
+  name: 'John'
+}))
+```

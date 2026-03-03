@@ -1,0 +1,483 @@
+---
+title: Adapter API
+description: Runtime adapter interface for supporting different JavaScript runtimes
+---
+
+Elysia uses adapters to support different JavaScript runtimes like Bun, Node.js, Cloudflare Workers, and Deno.
+
+## ElysiaAdapter
+
+The adapter interface that allows Elysia to run on different platforms.
+
+```typescript
+interface ElysiaAdapter {
+  name: string
+  listen(app: Elysia): ListenFunction
+  stop?(app: Elysia, closeActiveConnections?: boolean): Promise<void>
+  isWebStandard?: boolean
+  handler: HandlerAdapter
+  composeHandler: ComposeHandlerAdapter
+  composeGeneralHandler: ComposeGeneralHandlerAdapter
+  composeError: ComposeErrorAdapter
+  ws?(app: Elysia, path: string, handler: WSLocalHook): unknown
+  createSystemRouterHandler?(method: string, path: string, hook: LocalHook, app: Elysia): void
+  beforeCompile?(app: Elysia): void
+}
+```
+
+### Basic properties
+
+<ParamField path="name" type="string" required>
+  Adapter name (e.g., `'bun'`, `'node'`, `'cloudflare-worker'`)
+</ParamField>
+
+<ParamField path="isWebStandard" type="boolean">
+  Whether the adapter uses web standard APIs
+</ParamField>
+
+### Core methods
+
+#### listen
+
+Starts the HTTP server.
+
+```typescript
+listen(
+  app: Elysia
+): (options: string | number | Partial<Serve>, callback?: ListenCallback) => void
+```
+
+<ParamField path="app" type="Elysia" required>
+  The Elysia application instance
+</ParamField>
+
+<ResponseField name="return" type="ListenFunction">
+  Function that starts the server with the given options
+</ResponseField>
+
+#### stop
+
+Stops the HTTP server.
+
+```typescript
+stop?(
+  app: Elysia,
+  closeActiveConnections?: boolean
+): Promise<void>
+```
+
+<ParamField path="app" type="Elysia" required>
+  The Elysia application instance
+</ParamField>
+
+<ParamField path="closeActiveConnections" type="boolean" default={false}>
+  Whether to abruptly close active connections
+</ParamField>
+
+#### beforeCompile
+
+Executed before route compilation.
+
+```typescript
+beforeCompile?(app: Elysia): void
+```
+
+<ParamField path="app" type="Elysia" required>
+  The Elysia application instance
+</ParamField>
+
+## Handler adapter
+
+Defines how responses are mapped and handled.
+
+```typescript
+interface HandlerAdapter {
+  mapResponse(response: unknown, set: Context['set'], ...params: unknown[]): unknown
+  mapEarlyResponse(response: unknown, set: Context['set'], ...params: unknown[]): unknown
+  mapCompactResponse(response: unknown, ...params: unknown[]): unknown
+  createStaticHandler?(handle: unknown, hooks: LocalHook, setHeaders?: Context['set']['headers'], ...params: unknown[]): (() => unknown) | undefined
+  createNativeStaticHandler?(handle: unknown, hooks: LocalHook, set?: Context['set']): (() => Response | Promise<Response>) | undefined
+}
+```
+
+### mapResponse
+
+Maps return values to responses in all cases.
+
+```typescript
+mapResponse(
+  response: unknown,
+  set: Context['set'],
+  ...params: unknown[]
+): unknown
+```
+
+<ParamField path="response" type="unknown" required>
+  The handler return value
+</ParamField>
+
+<ParamField path="set" type="Context['set']" required>
+  Response configuration (status, headers, cookies)
+</ParamField>
+
+<ParamField path="params" type="unknown[]">
+  Additional runtime-specific parameters
+</ParamField>
+
+### mapEarlyResponse
+
+Maps responses for early returns (before main handler).
+
+```typescript
+mapEarlyResponse(
+  response: unknown,
+  set: Context['set'],
+  ...params: unknown[]
+): unknown
+```
+
+### mapCompactResponse
+
+Maps simple responses without cookies, status, or headers.
+
+```typescript
+mapCompactResponse(
+  response: unknown,
+  ...params: unknown[]
+): unknown
+```
+
+### createStaticHandler
+
+Optimizes static inline values.
+
+```typescript
+createStaticHandler?(
+  handle: unknown,
+  hooks: LocalHook,
+  setHeaders?: Context['set']['headers'],
+  ...params: unknown[]
+): (() => unknown) | undefined
+```
+
+<ParamField path="handle" type="unknown" required>
+  Static value to handle (e.g., `'Hello'`)
+</ParamField>
+
+<ParamField path="hooks" type="LocalHook" required>
+  Route hooks
+</ParamField>
+
+<ParamField path="setHeaders" type="Record<string, string>">
+  Default headers to set
+</ParamField>
+
+<ResponseField name="return" type="(() => unknown) | undefined">
+  Optimized handler function, or `undefined` if not applicable
+</ResponseField>
+
+## Compose handler adapter
+
+Controls how the request handler is composed and compiled.
+
+```typescript
+interface ComposeHandlerAdapter {
+  mapResponseContext?: string
+  declare?(inference: Sucrose.Inference): string | undefined
+  inject?: Record<string, unknown>
+  preferWebstandardHeaders?: boolean
+  headers: string
+  parser: {
+    json(isOptional: boolean): string
+    text(isOptional: boolean): string
+    urlencoded(isOptional: boolean): string
+    arrayBuffer(isOptional: boolean): string
+    formData(isOptional: boolean): string
+    declare?: string
+  }
+}
+```
+
+### declare
+
+Declares variables used in the handler.
+
+```typescript
+declare?(inference: Sucrose.Inference): string | undefined
+```
+
+<ParamField path="inference" type="Sucrose.Inference" required>
+  Type inference information for the route
+</ParamField>
+
+<ResponseField name="return" type="string | undefined">
+  JavaScript code string declaring variables
+</ResponseField>
+
+### inject
+
+Injects runtime values into the handler scope.
+
+<ParamField path="inject" type="Record<string, unknown>">
+  Object mapping variable names to values
+</ParamField>
+
+### headers
+
+Code for parsing request headers.
+
+<ParamField path="headers" type="string" required>
+  JavaScript expression that evaluates to request headers. Variable `c` is the context.
+</ParamField>
+
+### parser
+
+Code generators for parsing different content types.
+
+<ParamField path="parser.json" type="(isOptional: boolean) => string" required>
+  Generates code for parsing JSON bodies
+</ParamField>
+
+<ParamField path="parser.text" type="(isOptional: boolean) => string" required>
+  Generates code for parsing text bodies
+</ParamField>
+
+<ParamField path="parser.urlencoded" type="(isOptional: boolean) => string" required>
+  Generates code for parsing URL-encoded bodies
+</ParamField>
+
+<ParamField path="parser.arrayBuffer" type="(isOptional: boolean) => string" required>
+  Generates code for parsing ArrayBuffer bodies
+</ParamField>
+
+<ParamField path="parser.formData" type="(isOptional: boolean) => string" required>
+  Generates code for parsing FormData bodies
+</ParamField>
+
+<ParamField path="parser.declare" type="string">
+  Additional variable declarations for parser
+</ParamField>
+
+## Compose general handler adapter
+
+Controls the main request routing handler.
+
+```typescript
+interface ComposeGeneralHandlerAdapter {
+  parameters?: string
+  error404(hasEventHook: boolean, hasErrorHook: boolean, afterResponseHandler?: string): {
+    declare: string
+    code: string
+  }
+  createContext(app: Elysia): string
+  inject?: Record<string, unknown>
+}
+```
+
+### error404
+
+Generates 404 error handling code.
+
+```typescript
+error404(
+  hasEventHook: boolean,
+  hasErrorHook: boolean,
+  afterResponseHandler?: string
+): { declare: string; code: string }
+```
+
+<ParamField path="hasEventHook" type="boolean" required>
+  Whether event hooks exist
+</ParamField>
+
+<ParamField path="hasErrorHook" type="boolean" required>
+  Whether error hooks exist
+</ParamField>
+
+<ParamField path="afterResponseHandler" type="string">
+  Code for after-response handling
+</ParamField>
+
+<ResponseField name="return.declare" type="string">
+  Variable declarations
+</ResponseField>
+
+<ResponseField name="return.code" type="string">
+  Handler code
+</ResponseField>
+
+### createContext
+
+Generates code for creating the request context.
+
+```typescript
+createContext(app: Elysia): string
+```
+
+<ParamField path="app" type="Elysia" required>
+  The Elysia application instance
+</ParamField>
+
+<ResponseField name="return" type="string">
+  JavaScript code creating the context object. Variables `c` (context) and `p` (pathname) are available.
+</ResponseField>
+
+## Compose error adapter
+
+Controls error handling compilation.
+
+```typescript
+interface ComposeErrorAdapter {
+  declare?: string
+  inject?: Record<string, unknown>
+  mapResponseContext: string
+  validationError: string
+  unknownError: string
+}
+```
+
+<ParamField path="declare" type="string">
+  Variable declarations for error handler
+</ParamField>
+
+<ParamField path="inject" type="Record<string, unknown>">
+  Runtime values to inject
+</ParamField>
+
+<ParamField path="mapResponseContext" type="string" required>
+  Context variables available during response mapping
+</ParamField>
+
+<ParamField path="validationError" type="string" required>
+  Code for handling validation errors
+</ParamField>
+
+<ParamField path="unknownError" type="string" required>
+  Code for handling all other errors including NOT_FOUND
+</ParamField>
+
+## WebSocket adapter
+
+Handles WebSocket connections.
+
+```typescript
+ws?(
+  app: Elysia,
+  path: string,
+  handler: WSLocalHook
+): unknown
+```
+
+<ParamField path="app" type="Elysia" required>
+  The Elysia application instance
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  WebSocket route path
+</ParamField>
+
+<ParamField path="handler" type="WSLocalHook" required>
+  WebSocket event handlers
+</ParamField>
+
+## System router handler
+
+Optional native routing support for runtimes with built-in routers.
+
+```typescript
+createSystemRouterHandler?(
+  method: string,
+  path: string,
+  hook: LocalHook,
+  app: Elysia
+): void
+```
+
+<ParamField path="method" type="string" required>
+  HTTP method (GET, POST, etc.)
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  Route path pattern
+</ParamField>
+
+<ParamField path="hook" type="LocalHook" required>
+  Route hooks and handlers
+</ParamField>
+
+<ParamField path="app" type="Elysia" required>
+  The Elysia application instance
+</ParamField>
+
+## Example adapter
+
+A simplified adapter implementation:
+
+```typescript
+import type { ElysiaAdapter } from 'elysia/adapter'
+
+const myAdapter: ElysiaAdapter = {
+  name: 'my-runtime',
+  
+  listen(app) {
+    return (options, callback) => {
+      // Start server
+      const server = startMyServer(options, app.fetch)
+      callback?.(server)
+    }
+  },
+  
+  handler: {
+    mapResponse(response, set) {
+      return new Response(JSON.stringify(response), {
+        status: set.status,
+        headers: set.headers
+      })
+    },
+    
+    mapEarlyResponse(response, set) {
+      return this.mapResponse(response, set)
+    },
+    
+    mapCompactResponse(response) {
+      return new Response(JSON.stringify(response))
+    }
+  },
+  
+  composeHandler: {
+    headers: 'c.request.headers',
+    parser: {
+      json: (isOptional) => 
+        isOptional 
+          ? 'await c.request.json().catch(() => {})'
+          : 'await c.request.json()',
+      text: (isOptional) => 
+        isOptional
+          ? 'await c.request.text().catch(() => {})'
+          : 'await c.request.text()',
+      // ... other parsers
+    }
+  },
+  
+  composeGeneralHandler: {
+    createContext(app) {
+      return 'const c = { request, ...context }'
+    },
+    
+    error404(hasEventHook, hasErrorHook) {
+      return {
+        declare: '',
+        code: 'return new Response("Not Found", { status: 404 })'
+      }
+    }
+  },
+  
+  composeError: {
+    mapResponseContext: 'c',
+    validationError: 'return error.toResponse()',
+    unknownError: 'return new Response(error.message, { status: 500 })'
+  }
+}
+
+export default myAdapter
+```

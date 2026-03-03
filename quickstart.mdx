@@ -1,80 +1,351 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Build your first Elysia application in minutes with this hands-on guide."
 ---
 
-## Get started in three steps
+## Your first Elysia app
 
-Get your documentation site running locally and make your first customization.
+Let's build a simple REST API to learn the fundamentals of Elysia. We'll create an API that manages a list of users with full type safety and validation.
 
-### Step 1: Set up your local environment
+<Note>
+  Make sure you've [installed Elysia](/installation) before continuing.
+</Note>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+## Basic server
+
+Create a new file called `index.ts` and add the following code:
+
+```typescript index.ts
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/', () => 'Hello Elysia')
+  .listen(3000)
+
+console.log(
+  `🦊 Elysia is running at http://${app.server?.hostname}:${app.server?.port}`
+)
+```
+
+Run your server:
+
+```bash
+bun run index.ts
+```
+
+Visit `http://localhost:3000` and you'll see "Hello Elysia"!
+
+## Adding routes
+
+Let's add more routes to handle different HTTP methods:
+
+```typescript index.ts
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/', () => 'Hello Elysia')
+  .get('/json', () => ({ message: 'Hello World', timestamp: Date.now() }))
+  .post('/mirror', ({ body }) => body)
+  .listen(3000)
+```
+
+Elysia automatically handles JSON serialization. Return an object and it becomes a JSON response.
+
+## Schema validation
+
+Now let's add type-safe validation using Elysia's built-in schema system:
+
+```typescript index.ts
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .post('/user', ({ body }) => {
+    // body is automatically typed as { name: string, age: number }
+    return { 
+      message: `Created user ${body.name}, age ${body.age}`,
+      user: body 
+    }
+  }, {
+    body: t.Object({
+      name: t.String(),
+      age: t.Number()
+    })
+  })
+  .listen(3000)
+```
+
+Test it with curl:
+
+```bash
+curl -X POST http://localhost:3000/user \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "age": 25}'
+```
+
+Try sending invalid data - Elysia will automatically return a validation error!
+
+## Building a REST API
+
+Let's build a complete REST API with in-memory storage:
+
+```typescript index.ts
+import { Elysia, t } from 'elysia'
+
+interface User {
+  id: number
+  name: string
+  email: string
+}
+
+const users: User[] = []
+let nextId = 1
+
+const app = new Elysia()
+  // Get all users
+  .get('/users', () => users)
+  
+  // Get user by ID
+  .get('/users/:id', ({ params: { id }, set }) => {
+    const user = users.find(u => u.id === Number(id))
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    if (!user) {
+      set.status = 404
+      return { error: 'User not found' }
+    }
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    return user
+  })
+  
+  // Create a new user
+  .post('/users', ({ body }) => {
+    const user: User = {
+      id: nextId++,
+      name: body.name,
+      email: body.email
+    }
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    users.push(user)
+    return user
+  }, {
+    body: t.Object({
+      name: t.String(),
+      email: t.String({ format: 'email' })
+    })
+  })
+  
+  // Update a user
+  .put('/users/:id', ({ params: { id }, body, set }) => {
+    const index = users.findIndex(u => u.id === Number(id))
+    
+    if (index === -1) {
+      set.status = 404
+      return { error: 'User not found' }
+    }
+    
+    users[index] = { ...users[index], ...body }
+    return users[index]
+  }, {
+    body: t.Partial(t.Object({
+      name: t.String(),
+      email: t.String({ format: 'email' })
+    }))
+  })
+  
+  // Delete a user
+  .delete('/users/:id', ({ params: { id }, set }) => {
+    const index = users.findIndex(u => u.id === Number(id))
+    
+    if (index === -1) {
+      set.status = 404
+      return { error: 'User not found' }
+    }
+    
+    users.splice(index, 1)
+    return { message: 'User deleted successfully' }
+  })
+  
+  .listen(3000)
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+console.log(
+  `🦊 Elysia is running at http://${app.server?.hostname}:${app.server?.port}`
+)
+```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Testing your API
 
-### Step 3: Go live
+<Steps>
+  <Step title="Create a user">
+    ```bash
+    curl -X POST http://localhost:3000/users \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Alice", "email": "alice@example.com"}'
+    ```
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Get all users">
+    ```bash
+    curl http://localhost:3000/users
+    ```
+  </Step>
+
+  <Step title="Get a specific user">
+    ```bash
+    curl http://localhost:3000/users/1
+    ```
+  </Step>
+
+  <Step title="Update a user">
+    ```bash
+    curl -X PUT http://localhost:3000/users/1 \
+      -H "Content-Type: application/json" \
+      -d '{"name": "Alice Smith"}'
+    ```
+  </Step>
+
+  <Step title="Delete a user">
+    ```bash
+    curl -X DELETE http://localhost:3000/users/1
+    ```
+  </Step>
+</Steps>
+
+## State management
+
+For more complex state, use Elysia's state management:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .state('counter', 0)
+  .derive(({ store }) => ({
+    increase() {
+      store.counter++
+    }
+  }))
+  .get('/count', ({ increase, store }) => {
+    increase()
+    return { 
+      counter: store.counter,
+      doubled: store.counter * 2 
+    }
+  })
+  .listen(3000)
+```
+
+Each request to `/count` will increment the counter.
+
+## Route grouping and guards
+
+Organize routes and apply shared validation with groups and guards:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .group('/api', (app) => app
+    .guard(
+      {
+        headers: t.Object({
+          authorization: t.String()
+        })
+      },
+      (app) => app
+        .get('/protected', ({ headers }) => ({
+          message: 'You are authenticated!',
+          token: headers.authorization
+        }))
+        .get('/profile', () => ({ user: 'John Doe' }))
+    )
+    .get('/public', () => 'This route is public')
+  )
+  .listen(3000)
+```
+
+Test the protected route:
+
+```bash
+curl http://localhost:3000/api/protected \
+  -H "Authorization: Bearer your-token"
+```
+
+## Error handling
+
+Handle errors gracefully with error hooks:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .post('/user', ({ body }) => {
+    if (body.age < 18) {
+      throw new Error('User must be 18 or older')
+    }
+    return { message: 'User created', user: body }
+  }, {
+    body: t.Object({
+      name: t.String(),
+      age: t.Number()
+    }),
+    error({ error, set }) {
+      set.status = 400
+      return { 
+        error: error.message,
+        timestamp: Date.now()
+      }
+    }
+  })
+  .listen(3000)
+```
+
+## Lifecycle hooks
+
+Add middleware logic with lifecycle hooks:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .onRequest(({ request }) => {
+    console.log(`${request.method} ${request.url}`)
+  })
+  .onBeforeHandle(({ set }) => {
+    set.headers['X-Powered-By'] = 'Elysia'
+  })
+  .get('/', () => 'Hello Elysia')
+  .listen(3000)
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you've built your first Elysia application, explore these topics:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Routing" icon="route" href="/concepts/routing">
+    Learn advanced routing patterns and dynamic routes.
+  </Card>
+  
+  <Card title="Validation" icon="check-circle" href="/concepts/validation">
+    Deep dive into schema validation and type safety.
+  </Card>
+  
+  <Card title="Plugins" icon="puzzle-piece" href="/features/plugins">
+    Extend your app with the plugin ecosystem.
+  </Card>
+  
+  <Card title="State & decorators" icon="box" href="/features/state-decorator">
+    Manage state and add custom functionality.
+  </Card>
+  
+  <Card title="Guards & groups" icon="shield" href="/features/guard-group">
+    Organize routes and apply shared logic.
+  </Card>
+  
+  <Card title="Error handling" icon="triangle-exclamation" href="/features/error-handling">
+    Handle errors and validation failures.
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+<Tip>
+  Check out the [example directory](https://github.com/elysiajs/elysia/tree/main/example) in the Elysia repository for more real-world examples.
+</Tip>

@@ -1,0 +1,440 @@
+---
+title: "Adapters"
+description: "Runtime adapters for Bun, Cloudflare Workers, and Web Standard environments"
+---
+
+Elysia uses an adapter system to support multiple JavaScript runtimes and deployment targets. Adapters abstract runtime-specific APIs while maintaining consistent behavior across environments.
+
+## Available adapters
+
+Elysia ships with three built-in adapters:
+
+- **BunAdapter** - Optimized for Bun runtime (default)
+- **CloudflareAdapter** - For Cloudflare Workers
+- **WebStandardAdapter** - Web Standard compatible (Node.js, Deno, etc.)
+
+## Bun adapter
+
+The default adapter for Bun runtime, providing native performance optimizations:
+
+```typescript
+import { Elysia } from 'elysia'
+import { BunAdapter } from 'elysia/adapter/bun'
+
+const app = new Elysia({
+  adapter: BunAdapter // Default, can be omitted
+})
+  .get('/', () => 'Hello from Bun')
+  .listen(3000)
+```
+
+### Bun-specific features
+
+The Bun adapter leverages Bun's native capabilities:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/file', () => Bun.file('package.json'))
+  .listen({
+    port: 3000,
+    // Bun.serve options
+    development: true,
+    reusePort: true,
+    idleTimeout: 30
+  })
+```
+
+<Note>
+The Bun adapter uses `Bun.serve()` under the hood, providing access to all Bun server options.
+</Note>
+
+### Native static routes
+
+Bun adapter supports native static route optimization:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia({
+  nativeStaticResponse: true, // Default
+  aot: true // Enable static route compilation
+})
+  .get('/static', 'Static response')
+  .listen(3000)
+```
+
+Static routes are pre-compiled and served directly by Bun's router:
+
+```typescript
+// From adapter/bun/index.ts
+const routes = {
+  '/static': new Response('Static response'),
+  '/api': {
+    GET: handlerFunction,
+    POST: handlerFunction
+  }
+}
+
+Bun.serve({
+  routes,
+  fetch: app.fetch
+})
+```
+
+## Cloudflare Workers adapter
+
+Optimized for Cloudflare Workers environment:
+
+```typescript
+import { Elysia } from 'elysia'
+import { CloudflareAdapter } from 'elysia/adapter/cloudflare-worker'
+
+const app = new Elysia({
+  adapter: CloudflareAdapter
+})
+  .get('/', () => 'Hello from Cloudflare')
+  .compile()
+
+export default app
+```
+
+<Warning>
+Cloudflare Workers don't support the `.listen()` method. Export the Elysia instance directly instead.
+</Warning>
+
+### Cloudflare-specific configuration
+
+The Cloudflare adapter handles error responses differently:
+
+```typescript
+// From adapter/cloudflare-worker/index.ts
+export const CloudflareAdapter: ElysiaAdapter = {
+  ...WebStandardAdapter,
+  name: 'cloudflare-worker',
+  composeGeneralHandler: {
+    ...WebStandardAdapter.composeGeneralHandler,
+    error404(hasEventHook, hasErrorHook, afterHandle) {
+      const { code } = WebStandardAdapter.composeGeneralHandler.error404(
+        hasEventHook,
+        hasErrorHook,
+        afterHandle
+      )
+
+      return {
+        code,
+        declare: hasErrorHook
+          ? ''
+          : `const error404Message=notFound.message.toString()\n` +
+            `const error404={clone:()=>new Response(error404Message,{status:404})}\n`
+      }
+    }
+  },
+  beforeCompile(app) {
+    app.handleError = composeErrorHandler(app)
+    for (const route of app.routes) route.compile()
+  },
+  listen() {
+    return () => {
+      console.warn(
+        'Cloudflare Worker does not support listen method. Please export default Elysia instance instead.'
+      )
+    }
+  }
+}
+```
+
+### Environment bindings
+
+Access Cloudflare bindings through context:
+
+```typescript
+import { Elysia } from 'elysia'
+import { CloudflareAdapter } from 'elysia/adapter/cloudflare-worker'
+
+const app = new Elysia({ adapter: CloudflareAdapter })
+  .get('/kv', async ({ env }) => {
+    // Access KV, R2, Durable Objects, etc.
+    return await env.MY_KV.get('key')
+  })
+  .compile()
+
+export default app
+```
+
+## Web Standard adapter
+
+Provides compatibility with Web Standard Request/Response APIs:
+
+```typescript
+import { Elysia } from 'elysia'
+import { WebStandardAdapter } from 'elysia/adapter/web-standard'
+
+const app = new Elysia({
+  adapter: WebStandardAdapter
+})
+  .get('/', () => 'Hello from Web Standard')
+
+export default app
+```
+
+### Node.js usage
+
+Use with Node.js HTTP servers:
+
+```javascript
+import { Elysia } from 'elysia'
+import { WebStandardAdapter } from 'elysia/adapter/web-standard'
+import { createServer } from 'node:http'
+
+const app = new Elysia({
+  adapter: WebStandardAdapter
+})
+  .get('/', () => 'Hello Node.js')
+
+createServer(app.fetch).listen(3000)
+```
+
+### Deno usage
+
+```typescript
+import { Elysia } from 'elysia'
+import { WebStandardAdapter } from 'elysia/adapter/web-standard'
+
+const app = new Elysia({
+  adapter: WebStandardAdapter
+})
+  .get('/', () => 'Hello Deno')
+
+Deno.serve(app.fetch)
+```
+
+## Adapter architecture
+
+Adapters implement the `ElysiaAdapter` interface:
+
+```typescript
+// From adapter/types.ts
+export interface ElysiaAdapter {
+  name: string
+  
+  // Server lifecycle
+  listen(app: AnyElysia): (
+    options: string | number | Partial<Serve>,
+    callback?: ListenCallback
+  ) => void
+  
+  stop?(app: AnyElysia, closeActiveConnections?: boolean): Promise<void>
+  
+  // Response handlers
+  handler: {
+    mapResponse(response: unknown, set: Context['set'], ...params: unknown[]): unknown
+    mapEarlyResponse(response: unknown, set: Context['set'], ...params: unknown[]): unknown
+    mapCompactResponse(response: unknown, ...params: unknown[]): unknown
+    createStaticHandler?(...params: unknown[]): (() => unknown) | undefined
+    createNativeStaticHandler?(...params: unknown[]): (() => MaybePromise<Response>) | undefined
+  }
+  
+  // Code generation
+  composeHandler: {
+    headers: string
+    parser: Record<'json' | 'text' | 'urlencoded' | 'arrayBuffer' | 'formData', (isOptional: boolean) => string>
+  }
+  
+  // General handler composition
+  composeGeneralHandler: {
+    createContext(app: AnyElysia): string
+    error404(hasEventHook: boolean, hasErrorHook: boolean, afterResponseHandler?: string): {
+      declare: string
+      code: string
+    }
+  }
+  
+  // WebSocket support
+  ws?(app: AnyElysia, path: string, handler: AnyWSLocalHook): unknown
+  
+  // Compilation hooks
+  beforeCompile?(app: AnyElysia): void
+}
+```
+
+## Custom adapters
+
+Create custom adapters for specialized runtimes:
+
+```typescript
+import { WebStandardAdapter } from 'elysia/adapter/web-standard'
+import type { ElysiaAdapter } from 'elysia/adapter'
+
+export const CustomAdapter: ElysiaAdapter = {
+  ...WebStandardAdapter,
+  name: 'custom-runtime',
+  
+  listen(app) {
+    return (options, callback) => {
+      app.compile()
+      
+      // Custom server implementation
+      const server = customRuntime.createServer({
+        port: typeof options === 'number' ? options : options.port,
+        fetch: app.fetch
+      })
+      
+      if (callback) callback(server)
+    }
+  },
+  
+  handler: {
+    ...WebStandardAdapter.handler,
+    mapResponse(response, set) {
+      // Custom response mapping
+      return new Response(
+        JSON.stringify(response),
+        {
+          status: set.status,
+          headers: set.headers
+        }
+      )
+    }
+  }
+}
+```
+
+## Handler composition
+
+Adapters control how request handlers are composed:
+
+```typescript
+// From adapter/web-standard/index.ts
+composeHandler: {
+  headers:
+    'c.headers={}\n' +
+    'for(const [k,v] of c.request.headers.entries())' +
+    'c.headers[k]=v\n',
+  
+  parser: {
+    json(isOptional) {
+      if (isOptional)
+        return `try{c.body=await c.request.json()}catch{}\n`
+      return `c.body=await c.request.json()\n`
+    },
+    text() {
+      return `c.body=await c.request.text()\n`
+    },
+    urlencoded() {
+      return `c.body=parseQuery(await c.request.text())\n`
+    },
+    formData(isOptional) {
+      // Complex form data parsing logic
+      return formDataParser
+    }
+  }
+}
+```
+
+## Response mapping
+
+Adapters transform handler returns into HTTP responses:
+
+```typescript
+// Simplified from adapter/web-standard/handler.ts
+export const mapResponse = (
+  response: unknown,
+  set: Context['set']
+): Response => {
+  if (response instanceof Response)
+    return response
+  
+  if (typeof response === 'string')
+    return new Response(response, {
+      headers: set.headers
+    })
+  
+  return new Response(
+    JSON.stringify(response),
+    {
+      status: set.status,
+      headers: {
+        'content-type': 'application/json',
+        ...set.headers
+      }
+    }
+  )
+}
+```
+
+## System router integration
+
+Some runtimes provide native routing (Bun.serve routes):
+
+```typescript
+const app = new Elysia({
+  aot: true,
+  systemRouter: true // Use runtime router if available
+})
+```
+
+The Bun adapter generates optimized route maps:
+
+```typescript
+// From adapter/bun/index.ts
+const routes = {
+  '/api/users': {
+    GET: getUsersHandler,
+    POST: createUserHandler
+  },
+  '/api/users/123': getUserByIdHandler,
+  '/static': new Response('Static content')
+}
+
+Bun.serve({
+  routes,
+  fetch: app.fetch
+})
+```
+
+## Best practices
+
+### Choose the right adapter
+
+```typescript
+// Production on Bun
+const app = new Elysia() // BunAdapter is default
+
+// Cloudflare Workers
+const app = new Elysia({
+  adapter: CloudflareAdapter
+}).compile()
+
+// Node.js or Deno
+const app = new Elysia({
+  adapter: WebStandardAdapter
+})
+```
+
+### Adapter-specific optimizations
+
+```typescript
+import { Elysia } from 'elysia'
+
+// Enable Bun optimizations
+const app = new Elysia({
+  aot: true,
+  nativeStaticResponse: true,
+  systemRouter: true
+})
+```
+
+### Export correctly for each platform
+
+```typescript
+// Bun - use .listen()
+app.listen(3000)
+
+// Cloudflare Workers - export instance
+export default app.compile()
+
+// Web Standard - export fetch
+export default { fetch: app.fetch }
+```

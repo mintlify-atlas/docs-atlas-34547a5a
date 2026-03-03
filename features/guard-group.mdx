@@ -1,0 +1,367 @@
+---
+title: "Guard and group"
+description: "Apply validation and hooks to multiple routes with guard and group patterns"
+---
+
+## Overview
+
+Guard and group are powerful patterns in Elysia for applying shared validation rules, hooks, and configuration to multiple routes without repetition.
+
+## Guard
+
+Guard allows you to apply schema validation and hooks to a group of routes defined in a callback function.
+
+### Basic guard usage
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .guard(
+    {
+      query: t.Object({
+        name: t.String()
+      })
+    },
+    (app) => app
+      .get('/hello', ({ query }) => `Hello ${query.name}`)
+      .get('/hi', ({ query }) => `Hi ${query.name}`)
+  )
+  .listen(3000)
+```
+
+Both `/hello` and `/hi` routes require a `name` query parameter.
+
+### Guard with headers validation
+
+Validate headers across multiple routes:
+
+```typescript
+const app = new Elysia()
+  .model({
+    authorization: t.Object({
+      authorization: t.String()
+    })
+  })
+  .guard(
+    {
+      headers: 'authorization'
+    },
+    (app) => app
+      .get('/profile', ({ headers }) => ({
+        userId: headers.authorization
+      }))
+      .get('/settings', ({ headers }) => ({
+        userId: headers.authorization
+      }))
+  )
+  .listen(3000)
+```
+
+### Guard with beforeHandle hook
+
+Apply authentication or authorization to multiple routes:
+
+```typescript
+const app = new Elysia()
+  .guard(
+    {
+      beforeHandle({ headers, error }) {
+        if (!headers.authorization) {
+          return error(401, 'Unauthorized')
+        }
+      }
+    },
+    (app) => app
+      .get('/protected', () => 'Protected content')
+      .get('/admin', () => 'Admin panel')
+      .delete('/data', () => 'Data deleted')
+  )
+  .listen(3000)
+```
+
+### Example from source
+
+From `example/guard.ts:11-33`, here's a complete guard example:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+new Elysia()
+  .state('name', 'salt')
+  .get('/', ({ store: { name } }) => `Hi ${name}`, {
+    query: t.Object({
+      name: t.String()
+    })
+  })
+  .guard(
+    {
+      query: t.Object({
+        name: t.String()
+      })
+    },
+    (app) =>
+      app
+        .get('/profile', ({ query }) => `Hi`)
+        .post('/name', ({ store: { name }, body, query }) => name, {
+          body: t.Object({
+            id: t.Number({
+              minimum: 5
+            }),
+            username: t.String(),
+            profile: t.Object({
+              name: t.String()
+            })
+          })
+        })
+  )
+  .listen(3000)
+```
+
+## Group
+
+Group allows you to prefix routes and apply shared configuration without the schema validation aspect of guard.
+
+### Basic group usage
+
+```typescript
+const app = new Elysia()
+  .group('/api', (app) => app
+    .get('/users', () => ['Alice', 'Bob'])      // /api/users
+    .get('/posts', () => ['Post 1', 'Post 2'])  // /api/posts
+  )
+  .listen(3000)
+```
+
+### Group with prefix
+
+```typescript
+const app = new Elysia()
+  .group('/v1', (app) => app
+    .group('/users', (app) => app
+      .get('/', () => 'List users')           // /v1/users/
+      .get('/:id', ({ params }) => params.id) // /v1/users/:id
+      .post('/', () => 'Create user')         // /v1/users/
+    )
+    .group('/posts', (app) => app
+      .get('/', () => 'List posts')           // /v1/posts/
+      .get('/:id', ({ params }) => params.id) // /v1/posts/:id
+    )
+  )
+  .listen(3000)
+```
+
+## Combining guard and group
+
+You can nest guard within group and vice versa:
+
+```typescript
+const app = new Elysia()
+  .group('/api', (app) => app
+    .guard(
+      {
+        headers: t.Object({
+          authorization: t.String()
+        })
+      },
+      (app) => app
+        .get('/protected', () => 'Protected')
+        .post('/data', () => 'Data created')
+    )
+    .get('/public', () => 'Public endpoint')
+  )
+  .listen(3000)
+```
+
+## Guard with multiple schemas
+
+Apply multiple validations in a single guard:
+
+```typescript
+const app = new Elysia()
+  .guard(
+    {
+      body: t.Object({
+        username: t.String(),
+        password: t.String({ minLength: 8 })
+      }),
+      headers: t.Object({
+        'content-type': t.Literal('application/json')
+      }),
+      response: {
+        200: t.Object({
+          success: t.Boolean(),
+          userId: t.String()
+        }),
+        400: t.Object({
+          error: t.String()
+        })
+      }
+    },
+    (app) => app
+      .post('/register', ({ body }) => ({
+        success: true,
+        userId: generateId()
+      }))
+      .post('/login', ({ body }) => ({
+        success: true,
+        userId: authenticate(body)
+      }))
+  )
+  .listen(3000)
+```
+
+## Using models with guard
+
+Define reusable schemas and reference them in guards:
+
+```typescript
+const app = new Elysia()
+  .model({
+    user: t.Object({
+      name: t.String(),
+      email: t.String({ format: 'email' })
+    }),
+    auth: t.Object({
+      authorization: t.String()
+    })
+  })
+  .guard(
+    {
+      headers: 'auth',
+      body: 'user'
+    },
+    (app) => app
+      .post('/users', ({ body }) => body)
+      .put('/users/:id', ({ body }) => body)
+  )
+  .listen(3000)
+```
+
+## Advanced guard with derive
+
+Combine guard with derive for powerful authentication patterns:
+
+```typescript
+const app = new Elysia()
+  .guard(
+    {
+      headers: t.Object({
+        authorization: t.String()
+      })
+    },
+    (app) => app
+      .derive(({ headers }) => ({
+        userId: headers.authorization.replace('Bearer ', '')
+      }))
+      .get('/profile', ({ userId }) => ({ userId }))
+      .get('/settings', ({ userId }) => ({ userId }))
+  )
+  .listen(3000)
+```
+
+## Error handling in guards
+
+```typescript
+const app = new Elysia()
+  .guard(
+    {
+      beforeHandle({ headers, error }) {
+        const token = headers.authorization?.replace('Bearer ', '')
+        
+        if (!token) {
+          return error(401, 'Missing authorization token')
+        }
+        
+        if (!isValidToken(token)) {
+          return error(403, 'Invalid token')
+        }
+      }
+    },
+    (app) => app
+      .get('/protected', () => 'Success')
+  )
+  .listen(3000)
+```
+
+## Real-world API structure
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .model({
+    auth: t.Object({
+      authorization: t.String()
+    }),
+    pagination: t.Object({
+      page: t.Number({ minimum: 1, default: 1 }),
+      limit: t.Number({ minimum: 1, maximum: 100, default: 20 })
+    })
+  })
+  
+  // Public routes
+  .group('/api/v1', (app) => app
+    .get('/health', () => ({ status: 'ok' }))
+    
+    // Public user endpoints
+    .group('/users', (app) => app
+      .get('/', ({ query }) => {
+        // List users with pagination
+      }, {
+        query: 'pagination'
+      })
+      .get('/:id', ({ params }) => {
+        // Get single user
+      })
+    )
+    
+    // Protected admin endpoints
+    .guard(
+      {
+        headers: 'auth',
+        beforeHandle({ headers, error }) {
+          const isAdmin = checkAdmin(headers.authorization)
+          if (!isAdmin) {
+            return error(403, 'Admin access required')
+          }
+        }
+      },
+      (app) => app
+        .group('/admin', (app) => app
+          .get('/users', () => 'All users with sensitive data')
+          .delete('/users/:id', () => 'User deleted')
+          .get('/stats', () => 'System statistics')
+        )
+    )
+  )
+  .listen(3000)
+```
+
+<Tip>
+Guard is particularly useful for API routes that share authentication requirements or validation schemas. It reduces code duplication and makes your API structure more maintainable.
+</Tip>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Use guard for shared validation">
+    When multiple routes need the same validation rules, guard eliminates repetition and ensures consistency.
+  </Accordion>
+  
+  <Accordion title="Group for route organization">
+    Use group to organize routes by feature or version, making your API structure clear and maintainable.
+  </Accordion>
+  
+  <Accordion title="Nest guards and groups">
+    You can nest guards within groups and vice versa to create complex route hierarchies with specific validation at each level.
+  </Accordion>
+  
+  <Accordion title="Combine with models">
+    Define schemas once with `.model()` and reference them in guards for maximum reusability.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+Validation schemas in guards apply to all routes within the guard. If you need route-specific validation, define it in the individual route handler.
+</Warning>

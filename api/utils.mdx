@@ -1,0 +1,378 @@
+---
+title: Utility functions
+description: Utility functions and helper exports from Elysia
+---
+
+Elysia provides utility functions for common operations like deep merging, cookie signing, redirects, and Server-Sent Events.
+
+## Redirect
+
+Create HTTP redirects with proper status codes.
+
+```typescript
+redirect(
+  url: string,
+  status?: 301 | 302 | 303 | 307 | 308
+): Response
+```
+
+<ParamField path="url" type="string" required>
+  URL to redirect to
+</ParamField>
+
+<ParamField path="status" type="301 | 302 | 303 | 307 | 308" default={302}>
+  HTTP redirect status code:
+  - `301`: Moved permanently
+  - `302`: Found (temporary redirect)
+  - `303`: See other
+  - `307`: Temporary redirect
+  - `308`: Permanent redirect
+</ParamField>
+
+<ResponseField name="return" type="Response">
+  A Response object with redirect headers
+</ResponseField>
+
+```typescript
+import { Elysia, redirect } from 'elysia'
+
+app.get('/old-path', () => redirect('/new-path'))
+app.get('/permanent', () => redirect('/new-location', 301))
+```
+
+## Server-Sent Events (SSE)
+
+Create Server-Sent Event responses for streaming updates.
+
+```typescript
+sse<T>(
+  payload: T | string | SSEPayload
+): SSEPayload<T>
+```
+
+<ParamField path="payload" type="string | SSEPayload | Generator | AsyncGenerator | ReadableStream" required>
+  The data to send as SSE. Can be a string, SSE configuration object, or stream
+</ParamField>
+
+<ResponseField name="return" type="SSEPayload">
+  Formatted SSE payload with `data`, `event`, `id`, and `retry` fields
+</ResponseField>
+
+```typescript
+import { Elysia, sse } from 'elysia'
+
+app.get('/events', function*() {
+  yield sse('Hello, world!')
+  
+  yield sse({
+    event: 'message',
+    data: { message: 'This is a JSON object' },
+    id: '123',
+    retry: 1000
+  })
+})
+```
+
+### SSE payload format
+
+<ParamField path="data" type="string | object | null" required>
+  The event data. Objects are automatically JSON stringified
+</ParamField>
+
+<ParamField path="event" type="string">
+  Event type name for client-side filtering
+</ParamField>
+
+<ParamField path="id" type="string | number">
+  Event ID for tracking and resuming connections
+</ParamField>
+
+<ParamField path="retry" type="number">
+  Reconnection time in milliseconds
+</ParamField>
+
+## Deep merge
+
+Recursively merge objects with options for handling arrays and conflicts.
+
+```typescript
+mergeDeep<A, B>(
+  target: A,
+  source: B,
+  options?: MergeOptions
+): A & B
+```
+
+<ParamField path="target" type="Record<string, any>" required>
+  Target object to merge into
+</ParamField>
+
+<ParamField path="source" type="Record<string, any>" required>
+  Source object to merge from
+</ParamField>
+
+<ParamField path="options" type="MergeOptions">
+  Merge behavior options
+</ParamField>
+
+<ResponseField name="return" type="A & B">
+  Merged object combining properties from both inputs
+</ResponseField>
+
+### Merge options
+
+<ParamField path="skipKeys" type="string[]">
+  Keys to skip during merging
+</ParamField>
+
+<ParamField path="override" type="boolean" default={true}>
+  Whether source values should override target values
+</ParamField>
+
+<ParamField path="mergeArray" type="boolean" default={false}>
+  Whether to merge arrays by concatenation instead of replacement
+</ParamField>
+
+```typescript
+import { mergeDeep } from 'elysia/utils'
+
+const target = { a: 1, b: { c: 2 } }
+const source = { b: { d: 3 }, e: 4 }
+
+const result = mergeDeep(target, source)
+// { a: 1, b: { c: 2, d: 3 }, e: 4 }
+```
+
+## Cookie signing
+
+Sign and verify cookie values with HMAC-SHA256.
+
+### signCookie
+
+```typescript
+async signCookie(
+  val: string,
+  secret: string
+): Promise<string>
+```
+
+<ParamField path="val" type="string" required>
+  Value to sign. Objects are automatically JSON stringified
+</ParamField>
+
+<ParamField path="secret" type="string" required>
+  Secret key for signing
+</ParamField>
+
+<ResponseField name="return" type="Promise<string>">
+  Signed value in format `value.signature`
+</ResponseField>
+
+### unsignCookie
+
+```typescript
+async unsignCookie(
+  input: string,
+  secret: string | null
+): Promise<string | false>
+```
+
+<ParamField path="input" type="string" required>
+  Signed cookie string to verify
+</ParamField>
+
+<ParamField path="secret" type="string | null" required>
+  Secret key used for signing. Pass `null` for unsigned cookies
+</ParamField>
+
+<ResponseField name="return" type="Promise<string | false>">
+  Original value if signature is valid, `false` if invalid
+</ResponseField>
+
+```typescript
+import { signCookie, unsignCookie } from 'elysia/utils'
+
+const signed = await signCookie('user-123', 'my-secret')
+// 'user-123.a7b8c9d...'
+
+const value = await unsignCookie(signed, 'my-secret')
+// 'user-123'
+
+const invalid = await unsignCookie(signed, 'wrong-secret')
+// false
+```
+
+## Form data
+
+Create typed FormData objects with automatic file handling.
+
+```typescript
+form<T>(
+  items: T
+): ElysiaFormData<T>
+```
+
+<ParamField path="items" type="Record<string, any>" required>
+  Object to convert to FormData. Files and arrays are handled automatically
+</ParamField>
+
+<ResponseField name="return" type="ElysiaFormData<T>">
+  FormData instance with type information
+</ResponseField>
+
+```typescript
+import { Elysia, form, File } from 'elysia'
+
+const formData = form({
+  name: 'John',
+  email: 'john@example.com',
+  avatar: new File(['...'], 'avatar.jpg'),
+  tags: ['admin', 'user']
+})
+```
+
+## Status codes
+
+Map status codes to names and vice versa.
+
+### StatusMap
+
+```typescript
+const StatusMap: {
+  'Continue': 100,
+  'Switching Protocols': 101,
+  'OK': 200,
+  'Created': 201,
+  'Accepted': 202,
+  'No Content': 204,
+  'Bad Request': 400,
+  'Unauthorized': 401,
+  'Forbidden': 403,
+  'Not Found': 404,
+  'Internal Server Error': 500,
+  // ... and more
+}
+```
+
+### InvertedStatusMap
+
+```typescript
+const InvertedStatusMap: {
+  100: 'Continue',
+  101: 'Switching Protocols',
+  200: 'OK',
+  201: 'Created',
+  // ... and more
+}
+```
+
+```typescript
+import { StatusMap, InvertedStatusMap } from 'elysia/utils'
+
+const code = StatusMap['Not Found'] // 404
+const name = InvertedStatusMap[404] // 'Not Found'
+```
+
+## Checksum
+
+Generate fast checksums for strings.
+
+```typescript
+checksum(s: string): number
+```
+
+<ParamField path="s" type="string" required>
+  String to generate checksum for
+</ParamField>
+
+<ResponseField name="return" type="number">
+  32-bit checksum value
+</ResponseField>
+
+```typescript
+import { checksum } from 'elysia/utils'
+
+const hash = checksum('my-string')
+```
+
+## Random ID
+
+Generate random IDs for schema identification.
+
+```typescript
+randomId(): string
+```
+
+<ResponseField name="return" type="string">
+  16-character random string
+</ResponseField>
+
+```typescript
+import { randomId } from 'elysia/utils'
+
+const id = randomId() // 'a8f3e2b1c4d5...' (16 chars)
+```
+
+## isNumericString
+
+Check if a string can be safely parsed as a number.
+
+```typescript
+isNumericString(message: string | number): boolean
+```
+
+<ParamField path="message" type="string | number" required>
+  Value to check
+</ParamField>
+
+<ResponseField name="return" type="boolean">
+  `true` if the value is numeric or a numeric string
+</ResponseField>
+
+```typescript
+import { isNumericString } from 'elysia/utils'
+
+isNumericString('123') // true
+isNumericString('12.34') // true
+isNumericString('abc') // false
+isNumericString(42) // true
+```
+
+## Promise group
+
+Manage multiple promises with error handling.
+
+```typescript
+class PromiseGroup implements PromiseLike<void> {
+  constructor(
+    onError?: (error: any) => void,
+    onFinally?: () => void
+  )
+  
+  add<T>(promise: Promise<T>): Promise<T>
+  get size(): number
+}
+```
+
+<ParamField path="onError" type="(error: any) => void" default="console.error">
+  Error handler callback
+</ParamField>
+
+<ParamField path="onFinally" type="() => void">
+  Callback when all promises complete
+</ParamField>
+
+```typescript
+import { PromiseGroup } from 'elysia/utils'
+
+const group = new PromiseGroup(
+  (error) => console.error('Promise failed:', error),
+  () => console.log('All done')
+)
+
+group.add(fetch('/api/1'))
+group.add(fetch('/api/2'))
+group.add(fetch('/api/3'))
+
+await group // Wait for all promises
+```

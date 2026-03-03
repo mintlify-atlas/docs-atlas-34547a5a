@@ -1,0 +1,433 @@
+---
+title: "Migration guide"
+description: "Migrate your Elysia application between major versions"
+---
+
+<Info>
+  This guide covers migration between major versions of Elysia. Always review the full [changelog](https://github.com/elysiajs/elysia/blob/main/CHANGELOG.md) before upgrading.
+</Info>
+
+## Migrating to Elysia 1.4
+
+Elysia 1.4 introduces several improvements focused on security, performance, and developer experience.
+
+### Breaking changes
+
+No breaking changes were introduced in 1.4. This is a backward-compatible release.
+
+### Key improvements
+
+<Steps>
+  <Step title="Enhanced security">
+    Multiple security improvements were added:
+    
+    - Cookie prototype pollution prevention
+    - Constant-time comparison for signed cookie verification
+    - Cookie injection and RCE prevention
+    - Reject invalid cookie signatures when using cookie rotation
+    
+    <Warning>
+      If you're using signed cookies, ensure you're on 1.4.17 or later for critical security fixes.
+    </Warning>
+  </Step>
+
+  <Step title="Response handling improvements">
+    The response handling system has been significantly improved:
+    
+    ```typescript
+    // Set-Cookie headers are now preserved in mounted handlers
+    app.mount('/api', otherApp)
+    
+    // Multiple set-cookie headers work correctly
+    app.get('/login', ({ cookie }) => {
+      cookie.session.value = 'abc'
+      cookie.user.value = 'john'
+      return 'OK'
+    })
+    ```
+  </Step>
+
+  <Step title="Standard Schema support">
+    Elysia now supports Standard Schema validation alongside TypeBox:
+    
+    ```typescript
+    import { Elysia } from 'elysia'
+    import { z } from 'zod'
+    
+    const app = new Elysia()
+      .get('/user/:id', ({ params }) => params, {
+        params: z.object({
+          id: z.string()
+        })
+      })
+    ```
+  </Step>
+</Steps>
+
+### Recommended updates
+
+Update your dependencies:
+
+```bash
+bun update elysia
+```
+
+If using `@types/bun`, ensure compatibility:
+
+```bash
+bun add -d @types/bun@latest
+```
+
+## Migrating to Elysia 1.3
+
+Elysia 1.3 introduced significant performance improvements and new features.
+
+### Breaking changes
+
+<AccordionGroup>
+  <Accordion title="Removed as('plugin') in favor of as('scoped')">
+    The `as('plugin')` method has been removed. Use `as('scoped')` instead.
+    
+    ```typescript
+    // Before
+    const plugin = new Elysia()
+      .derive(() => ({ value: 'hello' }))
+      .as('plugin')
+    
+    // After
+    const plugin = new Elysia()
+      .derive(() => ({ value: 'hello' }))
+      .as('scoped')
+    ```
+  </Accordion>
+
+  <Accordion title="Removed root index for Eden Treaty">
+    The root index path has been removed from Eden Treaty type generation.
+    
+    If you were relying on this, update your client code accordingly.
+  </Accordion>
+
+  <Accordion title="Removed inference.request">
+    The `inference.request` configuration option has been removed.
+  </Accordion>
+</AccordionGroup>
+
+### Major features
+
+<Steps>
+  <Step title="Exact Mirror">
+    Elysia 1.3 introduces Exact Mirror for improved type inference:
+    
+    ```typescript
+    const app = new Elysia()
+      .get('/user', ({ query }) => query, {
+        query: t.Object({
+          'user-name': t.String(),
+          'user-id': t.Number()
+        })
+      })
+    ```
+  </Step>
+
+  <Step title="Bun System Router">
+    Enable native Bun routing for better performance:
+    
+    ```typescript
+    const app = new Elysia({
+      systemRouter: true
+    })
+    ```
+    
+    <Info>
+      System Router is automatically enabled when using Bun 1.2.14 or later.
+    </Info>
+  </Step>
+
+  <Step title="Standalone Validator">
+    Validators can now be used independently:
+    
+    ```typescript
+    import { t } from 'elysia'
+    
+    const validator = t.Compile(t.Object({
+      name: t.String(),
+      age: t.Number()
+    }))
+    
+    const result = validator.Check({ name: 'John', age: 25 })
+    ```
+  </Step>
+
+  <Step title="File type validation">
+    Automatic file type checking using the `file-type` library:
+    
+    ```typescript
+    app.post('/upload', ({ body }) => body, {
+      body: t.Object({
+        file: t.File({
+          type: ['image/png', 'image/jpeg']
+        })
+      })
+    })
+    ```
+  </Step>
+</Steps>
+
+### Performance improvements
+
+Elysia 1.3 includes numerous performance optimizations:
+
+- Reduced type checking overhead with AOT compilation
+- Optimized memory usage on route registration (~36% reduction)
+- Improved startup time with multiple routes
+- Dynamic cookie validator creation during compilation
+- Optimized query parsing with `parseQueryFromURL`
+
+## Migrating to Elysia 1.2
+
+Elysia 1.2 brought universal runtime support and improved WebSocket handling.
+
+### Breaking changes
+
+<Warning>
+  Elysia 1.2 removed the `error` function. Use `status` instead.
+</Warning>
+
+```typescript
+// Before (1.1)
+app.get('/user', ({ error }) => {
+  return error(404, 'Not found')
+})
+
+// After (1.2+)
+app.get('/user', ({ status }) => {
+  status(404)
+  return 'Not found'
+})
+```
+
+### Universal Runtime Support
+
+Elysia 1.2 introduces adapters for multiple runtimes:
+
+<CodeGroup>
+```typescript Bun (default)
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/', () => 'Hello Bun')
+  .listen(3000)
+```
+
+```typescript Node.js
+import { Elysia } from 'elysia'
+import { node } from 'elysia/adapter/node'
+
+const app = new Elysia()
+  .use(node())
+  .get('/', () => 'Hello Node')
+  .listen(3000)
+```
+
+```typescript Cloudflare Workers
+import { Elysia } from 'elysia'
+import { cloudflare } from 'elysia/adapter/cloudflare-worker'
+
+const app = new Elysia()
+  .use(cloudflare())
+  .get('/', () => 'Hello Cloudflare')
+
+export default app
+```
+
+```typescript Web Standard
+import { Elysia } from 'elysia'
+import { webStandard } from 'elysia/adapter/web-standard'
+
+const app = new Elysia()
+  .use(webStandard())
+  .get('/', () => 'Hello Web Standard')
+```
+</CodeGroup>
+
+### Macro improvements
+
+Macros now support resolve functionality:
+
+```typescript
+app.macro(({ onResolve }) => ({
+  auth(enabled: boolean) {
+    if (!enabled) return
+    
+    onResolve(async ({ headers }) => {
+      const token = headers.authorization?.split(' ')[1]
+      if (!token) throw new Error('Unauthorized')
+      
+      return {
+        user: await validateToken(token)
+      }
+    })
+  }
+}))
+
+app.get('/profile', ({ user }) => user, {
+  auth: true
+})
+```
+
+## Migrating to Elysia 1.1
+
+Elysia 1.1 introduced Trace v2 and improved type coercion.
+
+### Breaking changes
+
+<AccordionGroup>
+  <Accordion title="Query parsing as string by default">
+    Query parameters are now parsed as `string` instead of `string | string[]` unless explicitly specified.
+    
+    ```typescript
+    // Before (1.0)
+    app.get('/search', ({ query }) => {
+      const term: string | string[] = query.q
+    })
+    
+    // After (1.1)
+    app.get('/search', ({ query }) => {
+      const term: string = query.q // Single value
+    })
+    
+    // For arrays, use t.Array
+    app.get('/filter', ({ query }) => query, {
+      query: t.Object({
+        tags: t.Array(t.String()) // string[]
+      })
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="onResponse renamed to onAfterResponse">
+    The lifecycle hook has been renamed for clarity:
+    
+    ```typescript
+    // Before
+    app.onResponse(() => {
+      console.log('Response sent')
+    })
+    
+    // After
+    app.onAfterResponse(() => {
+      console.log('Response sent')
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### New features
+
+<CardGroup cols={2}>
+  <Card title="Optional path parameters" icon="question">
+    Define optional segments in your routes:
+    
+    ```typescript
+    app.get('/user/:id?', ({ params }) => {
+      return params.id ?? 'all users'
+    })
+    ```
+  </Card>
+
+  <Card title="Generator response streams" icon="water">
+    Stream responses using generators:
+    
+    ```typescript
+    app.get('/stream', function* () {
+      yield 'chunk 1'
+      yield 'chunk 2'
+      yield 'chunk 3'
+    })
+    ```
+  </Card>
+
+  <Card title="Data type coercion" icon="repeat">
+    Automatic type coercion for common types:
+    
+    ```typescript
+    app.get('/user/:id', ({ params }) => {
+      // id is automatically a number
+      return { id: params.id }
+    }, {
+      params: t.Object({
+        id: t.Numeric()
+      })
+    })
+    ```
+  </Card>
+
+  <Card title="Trace v2" icon="magnifying-glass">
+    Enhanced tracing capabilities:
+    
+    ```typescript
+    app.trace(async ({ handle }) => {
+      console.log('Start:', handle.time)
+    })
+    ```
+  </Card>
+</CardGroup>
+
+## Migrating to Elysia 1.0
+
+Elysia 1.0 was the first stable release with significant API changes from 0.x versions.
+
+### Major changes from 0.x
+
+<Steps>
+  <Step title="Macro v1 removed">
+    The original macro API has been completely redesigned. Review the [macro documentation](/advanced/macros) for the new API.
+  </Step>
+
+  <Step title="ObjectString/ArrayString security">
+    Default values are no longer produced automatically for security reasons:
+    
+    ```typescript
+    // Define defaults explicitly
+    app.get('/search', ({ query }) => query, {
+      query: t.Object({
+        tags: t.Array(t.String(), { default: [] })
+      })
+    })
+    ```
+  </Step>
+
+  <Step title="Cookie parsing improvements">
+    Cookies now dynamically parse when format is likely JSON:
+    
+    ```typescript
+    app.get('/', ({ cookie }) => {
+      cookie.data.value = { user: 'john', role: 'admin' }
+    })
+    ```
+  </Step>
+</Steps>
+
+## Version compatibility
+
+Elysia follows semantic versioning:
+
+| Version | Bun Version | TypeScript | Status |
+|---------|-------------|------------|--------|
+| 1.4.x   | >= 1.2.0    | >= 5.0     | Current |
+| 1.3.x   | >= 1.2.0    | >= 5.0     | Supported |
+| 1.2.x   | >= 1.0.0    | >= 5.0     | Supported |
+| 1.1.x   | >= 1.0.0    | >= 5.0     | Legacy |
+| 1.0.x   | >= 1.0.0    | >= 5.0     | Legacy |
+
+<Note>
+  Elysia is designed for Bun but supports other runtimes via adapters starting from version 1.2.
+</Note>
+
+## Getting help
+
+If you encounter issues during migration:
+
+- Check the [GitHub Issues](https://github.com/elysiajs/elysia/issues)
+- Join the [Discord community](https://discord.gg/eaFJ2KDJck)
+- Review the [full changelog](https://github.com/elysiajs/elysia/blob/main/CHANGELOG.md)

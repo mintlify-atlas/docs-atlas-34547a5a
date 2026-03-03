@@ -1,0 +1,481 @@
+---
+title: "Tracing"
+description: "Trace request lifecycle, measure performance, and monitor application behavior"
+---
+
+Elysia's tracing system provides detailed insights into request lifecycle events, enabling performance monitoring, debugging, and observability. Tracing captures timing information for each lifecycle phase without impacting production performance.
+
+## Overview
+
+Tracing allows you to intercept and monitor every stage of request processing:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async ({ onRequest, onParse, onHandle }) => {
+    const { begin, end } = await onRequest()
+    console.log('Request started at:', begin)
+    
+    const requestEnd = await end
+    console.log('Request processed in:', requestEnd - begin, 'ms')
+  })
+  .get('/', () => 'Hello')
+  .listen(3000)
+```
+
+## Trace events
+
+Elysia traces these lifecycle events:
+
+```typescript
+type TraceEvent =
+  | 'request'      // Initial request received
+  | 'parse'        // Body parsing
+  | 'transform'    // Request transformation
+  | 'beforeHandle' // Before route handler
+  | 'handle'       // Route handler execution
+  | 'afterHandle'  // After route handler
+  | 'mapResponse'  // Response mapping
+  | 'afterResponse'// After response sent
+  | 'error'        // Error occurred
+```
+
+## Basic tracing
+
+Trace specific lifecycle events:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async ({ onHandle, onError }) => {
+    // Trace handler execution
+    const { name, begin, end } = await onHandle()
+    
+    console.log(`Handler "${name}" started at ${begin}ms`)
+    
+    const endTime = await end
+    console.log(`Handler finished in ${endTime - begin}ms`)
+    
+    // Trace errors
+    const error = await onError()
+    if (error) {
+      console.error('Error occurred:', error)
+    }
+  })
+  .get('/api', () => ({ data: 'response' }))
+```
+
+## Trace process
+
+Each trace event provides a `TraceProcess` object:
+
+```typescript
+interface TraceProcess {
+  // Function/event name
+  name: string
+  
+  // Start timestamp (ms since server start)
+  begin: number
+  
+  // End timestamp (Promise)
+  end: Promise<number>
+  
+  // Error if thrown (Promise)
+  error: Promise<Error | null>
+  
+  // Number of child events
+  total: number
+  
+  // Register end callback
+  onStop(callback?: (detail: TraceEndDetail) => unknown): Promise<void>
+  
+  // Register child event listener
+  onEvent(callback?: (process: TraceProcess) => unknown): Promise<void>
+}
+
+interface TraceEndDetail {
+  // End timestamp
+  end: TraceProcess<'end'>
+  
+  // Error if thrown
+  error: Error | null
+  
+  // Elapsed time in ms
+  elapsed: number
+}
+```
+
+## Tracing child events
+
+Some lifecycle events have child events (e.g., multiple transform hooks):
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async ({ onTransform }) => {
+    const process = await onTransform()
+    
+    console.log(`Transform has ${process.total} child events`)
+    
+    // Listen to each child event
+    await process.onEvent((child) => {
+      console.log(`Transform ${child.index}: ${child.name}`)
+      
+      child.onStop(({ elapsed }) => {
+        console.log(`Completed in ${elapsed}ms`)
+      })
+    })
+  })
+  .transform(() => console.log('Transform 1'))
+  .transform(() => console.log('Transform 2'))
+  .get('/', () => 'Hello')
+```
+
+## Performance monitoring
+
+Track request performance:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async ({ id, onRequest, onResponse }) => {
+    const start = await onRequest()
+    
+    await onResponse()
+    await start.onStop(async ({ elapsed }) => {
+      console.log(`[${id}] Request completed in ${elapsed}ms`)
+      
+      // Log slow requests
+      if (elapsed > 1000) {
+        console.warn(`⚠️ Slow request detected: ${elapsed}ms`)
+      }
+    })
+  })
+  .get('/slow', async () => {
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    return 'Done'
+  })
+```
+
+## Request tracing
+
+Trace the complete request lifecycle:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async (lifecycle) => {
+    const {
+      id,
+      context,
+      onRequest,
+      onParse,
+      onTransform,
+      onBeforeHandle,
+      onHandle,
+      onAfterHandle,
+      onMapResponse,
+      onAfterResponse
+    } = lifecycle
+    
+    console.log(`[${id}] ${context.request.method} ${context.path}`)
+    
+    // Track each phase
+    const phases = [
+      'request',
+      'parse',
+      'transform',
+      'beforeHandle',
+      'handle',
+      'afterHandle',
+      'mapResponse',
+      'afterResponse'
+    ]
+    
+    for (const phase of phases) {
+      const event = lifecycle[`on${phase.charAt(0).toUpperCase() + phase.slice(1)}`]
+      const process = await event()
+      
+      process.onStop(({ elapsed }) => {
+        console.log(`  ${phase}: ${elapsed.toFixed(2)}ms`)
+      })
+    }
+  })
+  .get('/', () => 'Hello')
+```
+
+## Error tracing
+
+Capture and analyze errors:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async ({ id, context, onError }) => {
+    const process = await onError()
+    
+    process.onStop(async ({ error, elapsed }) => {
+      if (error) {
+        console.error(`[${id}] Error in ${context.path}:`, {
+          message: error.message,
+          stack: error.stack,
+          elapsed
+        })
+      }
+    })
+  })
+  .get('/error', () => {
+    throw new Error('Something went wrong')
+  })
+```
+
+## Trace storage
+
+Store trace data for analysis:
+
+```typescript
+import { Elysia } from 'elysia'
+
+interface TraceData {
+  id: number
+  path: string
+  method: string
+  phases: Record<string, number>
+  totalTime: number
+  error?: string
+}
+
+const traces: TraceData[] = []
+
+const app = new Elysia()
+  .trace(async (lifecycle) => {
+    const { id, context } = lifecycle
+    const trace: TraceData = {
+      id,
+      path: context.path,
+      method: context.request.method,
+      phases: {},
+      totalTime: 0
+    }
+    
+    // Track all phases
+    for (const [name, listener] of Object.entries(lifecycle)) {
+      if (!name.startsWith('on')) continue
+      
+      const process = await (listener as Function)()
+      process.onStop?.(({ elapsed }) => {
+        trace.phases[name] = elapsed
+      })
+    }
+    
+    // Store on completion
+    const { onAfterResponse } = lifecycle
+    const response = await onAfterResponse()
+    response.onStop(({ elapsed }) => {
+      trace.totalTime = elapsed
+      traces.push(trace)
+      
+      // Keep only last 1000 traces
+      if (traces.length > 1000) {
+        traces.shift()
+      }
+    })
+  })
+  .get('/stats', () => ({
+    totalRequests: traces.length,
+    averageTime: traces.reduce((sum, t) => sum + t.totalTime, 0) / traces.length,
+    slowest: traces.sort((a, b) => b.totalTime - a.totalTime)[0]
+  }))
+```
+
+## OpenTelemetry integration
+
+Integrate with OpenTelemetry for distributed tracing:
+
+```typescript
+import { Elysia } from 'elysia'
+import { trace, context, SpanStatusCode } from '@opentelemetry/api'
+
+const tracer = trace.getTracer('elysia-app')
+
+const app = new Elysia()
+  .trace(async ({ id, context: ctx, onRequest, onHandle, onError }) => {
+    // Create root span
+    const span = tracer.startSpan(`${ctx.request.method} ${ctx.path}`, {
+      attributes: {
+        'http.method': ctx.request.method,
+        'http.url': ctx.request.url,
+        'request.id': id
+      }
+    })
+    
+    // Trace handler
+    const handler = await onHandle()
+    handler.onStop(({ elapsed, error }) => {
+      span.setAttribute('handler.duration', elapsed)
+      
+      if (error) {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: error.message
+        })
+        span.recordException(error)
+      }
+    })
+    
+    // End span after response
+    const request = await onRequest()
+    request.onStop(() => {
+      span.end()
+    })
+  })
+  .get('/', () => 'Hello')
+```
+
+## Custom trace reporters
+
+Create custom trace reporting:
+
+```typescript
+import { Elysia } from 'elysia'
+
+class TraceReporter {
+  private traces = new Map<number, any>()
+  
+  async report(lifecycle: any) {
+    const { id, context } = lifecycle
+    const trace = {
+      id,
+      url: context.request.url,
+      method: context.request.method,
+      phases: {} as Record<string, number>,
+      startTime: Date.now()
+    }
+    
+    this.traces.set(id, trace)
+    
+    // Track each lifecycle event
+    for (const [key, value] of Object.entries(lifecycle)) {
+      if (!key.startsWith('on')) continue
+      
+      const process = await (value as Function)()
+      process.onStop?.(({ elapsed }: any) => {
+        trace.phases[key] = elapsed
+      })
+    }
+    
+    // Clean up after response
+    const { onAfterResponse } = lifecycle
+    const response = await onAfterResponse()
+    response.onStop(() => {
+      this.logTrace(trace)
+      this.traces.delete(id)
+    })
+  }
+  
+  private logTrace(trace: any) {
+    console.log('📊 Trace Report:', JSON.stringify(trace, null, 2))
+  }
+}
+
+const reporter = new TraceReporter()
+
+const app = new Elysia()
+  .trace((lifecycle) => reporter.report(lifecycle))
+  .get('/', () => 'Hello')
+```
+
+## Conditional tracing
+
+Enable tracing conditionally:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const isDevelopment = process.env.NODE_ENV === 'development'
+
+const app = new Elysia()
+  .trace(
+    isDevelopment
+      ? async ({ onHandle }) => {
+          const process = await onHandle()
+          process.onStop(({ elapsed }) => {
+            console.log(`Handler took ${elapsed}ms`)
+          })
+        }
+      : undefined // No tracing in production
+  )
+  .get('/', () => 'Hello')
+```
+
+## Best practices
+
+### Use tracing for debugging
+
+```typescript
+// Development: Verbose tracing
+if (process.env.NODE_ENV === 'development') {
+  app.trace(async (lifecycle) => {
+    // Log all events
+  })
+}
+```
+
+### Monitor performance bottlenecks
+
+```typescript
+app.trace(async ({ onHandle }) => {
+  const handler = await onHandle()
+  handler.onStop(({ name, elapsed }) => {
+    if (elapsed > 100) {
+      console.warn(`Slow handler "${name}": ${elapsed}ms`)
+    }
+  })
+})
+```
+
+### Aggregate metrics
+
+```typescript
+const metrics = {
+  requests: 0,
+  totalTime: 0,
+  errors: 0
+}
+
+app.trace(async ({ onRequest, onError }) => {
+  metrics.requests++
+  
+  const request = await onRequest()
+  request.onStop(({ elapsed }) => {
+    metrics.totalTime += elapsed
+  })
+  
+  const error = await onError()
+  error.onStop(({ error }) => {
+    if (error) metrics.errors++
+  })
+})
+```
+
+### Clean up resources
+
+```typescript
+const activeTraces = new Map()
+
+app.trace(async ({ id, onAfterResponse }) => {
+  activeTraces.set(id, { /* trace data */ })
+  
+  const response = await onAfterResponse()
+  response.onStop(() => {
+    // Clean up when request completes
+    activeTraces.delete(id)
+  })
+})
+```

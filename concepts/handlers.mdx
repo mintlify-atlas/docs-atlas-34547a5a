@@ -1,0 +1,326 @@
+---
+title: Request handlers
+description: Learn how to write request handlers in Elysia.js
+---
+
+Request handlers are functions that process incoming HTTP requests and return responses. In Elysia, handlers receive a context object with everything needed to handle the request.
+
+## Basic handlers
+
+A handler can return any value, which Elysia automatically converts to an appropriate response:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  // Return string
+  .get('/', () => 'Hello World')
+  
+  // Return number
+  .get('/number', () => 617)
+  
+  // Return boolean
+  .get('/bool', () => true)
+  
+  // Return JSON object
+  .get('/json', () => ({ name: 'Elysia' }))
+  
+  // Return array
+  .get('/array', () => [1, 2, 3])
+  .listen(3000)
+```
+
+## Handler parameters
+
+Handlers receive a context object with request information:
+
+```typescript
+app.get('/user/:id', ({ params, query, body, headers }) => {
+  return {
+    id: params.id,
+    query: query,
+    contentType: headers['content-type']
+  }
+})
+```
+
+See the [Context](/concepts/context) documentation for details on all available properties.
+
+## Async handlers
+
+Handlers can be asynchronous:
+
+```typescript
+app.get('/users', async () => {
+  const users = await database.users.findMany()
+  return users
+})
+
+app.post('/users', async ({ body }) => {
+  const user = await database.users.create(body)
+  return user
+})
+```
+
+<Note>
+Elysia automatically handles promises and awaits async handlers.
+</Note>
+
+## Setting response status
+
+Use the `set` object to configure the response:
+
+```typescript
+app.post('/users', ({ body, set }) => {
+  set.status = 201 // Created
+  return { id: 1, ...body }
+})
+
+app.get('/not-found', ({ set }) => {
+  set.status = 404
+  return { error: 'Not found' }
+})
+```
+
+Or use the `status` helper for type-safe status codes:
+
+```typescript
+app.get('/error', ({ status }) => {
+  return status(500, { error: 'Internal server error' })
+})
+
+app.post('/created', ({ status, body }) => {
+  return status(201, { id: 1, ...body })
+})
+```
+
+## Setting headers
+
+Add custom headers to the response:
+
+```typescript
+app.get('/api/data', ({ set }) => {
+  set.headers['Cache-Control'] = 'max-age=3600'
+  set.headers['X-Custom-Header'] = 'value'
+  return { data: 'cached data' }
+})
+```
+
+Set default headers for all routes:
+
+```typescript
+const app = new Elysia()
+  .headers({
+    'Access-Control-Allow-Origin': '*',
+    'X-Powered-By': 'Elysia'
+  })
+  .get('/', () => 'Hello')
+```
+
+## Redirects
+
+Redirect to another URL using the `redirect` helper:
+
+```typescript
+app.get('/old-path', ({ redirect }) => {
+  return redirect('/new-path')
+})
+
+app.get('/external', ({ redirect }) => {
+  return redirect('https://example.com')
+})
+
+// With status code
+app.get('/moved', ({ redirect }) => {
+  return redirect('/new-location', 301) // Permanent redirect
+})
+```
+
+## Response types
+
+### JSON responses
+
+Return objects or arrays for automatic JSON serialization:
+
+```typescript
+app.get('/users', () => [
+  { id: 1, name: 'Alice' },
+  { id: 2, name: 'Bob' }
+])
+```
+
+### Text responses
+
+Return strings for plain text:
+
+```typescript
+app.get('/text', () => 'Plain text response')
+```
+
+### HTML responses
+
+Set the content type for HTML:
+
+```typescript
+app.get('/page', ({ set }) => {
+  set.headers['Content-Type'] = 'text/html'
+  return '<h1>Hello World</h1>'
+})
+```
+
+### Custom Response objects
+
+Return a `Response` object for full control:
+
+```typescript
+app.get('/custom', () => {
+  return new Response('Custom response', {
+    status: 418,
+    headers: {
+      'Content-Type': 'text/plain',
+      'X-Custom': 'header'
+    }
+  })
+})
+```
+
+### Streaming responses
+
+Stream data to the client:
+
+```typescript
+app.get('/stream', () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue('chunk 1\n')
+      controller.enqueue('chunk 2\n')
+      controller.close()
+    }
+  })
+  
+  return new Response(stream)
+})
+```
+
+## Inline route configuration
+
+Configure validation and other options inline:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+app.post('/users', ({ body }) => {
+  return { id: 1, ...body }
+}, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String()
+  })
+})
+```
+
+## Handler composition
+
+<Tabs>
+  <Tab title="Extract to functions">
+    ```typescript
+    const getUsers = async () => {
+      return await database.users.findMany()
+    }
+    
+    const getUserById = async ({ params }: { params: { id: string } }) => {
+      return await database.users.findById(params.id)
+    }
+    
+    app
+      .get('/users', getUsers)
+      .get('/users/:id', getUserById)
+    ```
+  </Tab>
+  
+  <Tab title="Shared logic">
+    ```typescript
+    const requireAuth = (handler: Function) => {
+      return async (context: any) => {
+        if (!context.headers.authorization) {
+          context.set.status = 401
+          return { error: 'Unauthorized' }
+        }
+        return handler(context)
+      }
+    }
+    
+    app.get('/protected', requireAuth(async () => {
+      return { data: 'Secret data' }
+    }))
+    ```
+  </Tab>
+</Tabs>
+
+## Error handling
+
+Throw errors to trigger error handlers:
+
+```typescript
+app
+  .get('/user/:id', async ({ params }) => {
+    const user = await database.users.findById(params.id)
+    
+    if (!user) {
+      throw new Error('User not found')
+    }
+    
+    return user
+  })
+  .onError(({ code, error, set }) => {
+    if (code === 'NOT_FOUND') {
+      set.status = 404
+      return { error: 'Not found' }
+    }
+    
+    set.status = 500
+    return { error: error.message }
+  })
+```
+
+<Warning>
+Always handle errors appropriately to prevent exposing sensitive information.
+</Warning>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Keep handlers focused">
+    Each handler should do one thing well. Extract complex logic to separate functions.
+  </Accordion>
+  
+  <Accordion title="Use async/await for I/O">
+    Always use `async/await` for database queries, file operations, and external API calls.
+  </Accordion>
+  
+  <Accordion title="Set appropriate status codes">
+    Use correct HTTP status codes:
+    - `200` for success
+    - `201` for created resources
+    - `204` for no content
+    - `400` for bad requests
+    - `401` for unauthorized
+    - `404` for not found
+    - `500` for server errors
+  </Accordion>
+  
+  <Accordion title="Validate input early">
+    Use schema validation to catch invalid input before processing.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Context" icon="layer-group" href="/concepts/context">
+    Learn about the context object
+  </Card>
+  <Card title="Validation" icon="shield-check" href="/concepts/validation">
+    Validate request data with schemas
+  </Card>
+</CardGroup>

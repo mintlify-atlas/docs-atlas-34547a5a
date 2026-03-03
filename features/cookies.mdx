@@ -1,0 +1,480 @@
+---
+title: "Cookies"
+description: "Handle HTTP cookies with signing, validation, and type safety"
+---
+
+## Overview
+
+Elysia provides a comprehensive cookie handling system with support for signed cookies, schema validation, and full TypeScript type inference. The implementation is in `src/cookies.ts`.
+
+## Basic cookie usage
+
+Access and set cookies through the context:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/set', ({ cookie: { name } }) => {
+    name.value = 'Elysia'
+    return 'Cookie set'
+  })
+  .get('/get', ({ cookie: { name } }) => {
+    return name.value
+  })
+  .listen(3000)
+```
+
+## Cookie properties
+
+The Cookie class (defined in `src/cookies.ts:147-346`) supports all standard cookie attributes:
+
+### Setting cookie attributes
+
+```typescript
+const app = new Elysia()
+  .get('/cookie', ({ cookie: { session } }) => {
+    session.value = 'session-id-123'
+    session.maxAge = 86400              // 1 day in seconds
+    session.httpOnly = true             // Not accessible via JavaScript
+    session.secure = true               // HTTPS only
+    session.sameSite = 'lax'            // CSRF protection
+    session.path = '/'                  // Cookie path
+    session.domain = '.example.com'     // Cookie domain
+    
+    return 'Cookie set with attributes'
+  })
+  .listen(3000)
+```
+
+## Cookie options
+
+From `src/cookies.ts:27-137`, available cookie options:
+
+```typescript
+interface CookieOptions {
+  domain?: string
+  expires?: Date
+  httpOnly?: boolean
+  maxAge?: number           // in seconds
+  path?: string
+  secure?: boolean
+  sameSite?: 'lax' | 'strict' | 'none' | boolean
+  priority?: 'low' | 'medium' | 'high'
+  partitioned?: boolean
+  secrets?: string | (string | null)[]
+}
+```
+
+## Global cookie configuration
+
+Set default cookie options for all cookies:
+
+```typescript
+const app = new Elysia({
+  cookie: {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/'
+  }
+})
+  .get('/cookie', ({ cookie: { name } }) => {
+    name.value = 'value' // Inherits global config
+    return 'Cookie set'
+  })
+  .listen(3000)
+```
+
+## Example from source
+
+From `example/cookie.ts:3-45`:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia({
+  cookie: {
+    secrets: 'Fischl von Luftschloss Narfidort',
+    sign: 'name'
+  }
+})
+  .get(
+    '/council',
+    ({ cookie: { council } }) =>
+      (council.value = [
+        {
+          name: 'Rin',
+          affilation: 'Administration'
+        }
+      ]),
+    {
+      cookie: t.Cookie({
+        council: t.Array(
+          t.Object({
+            name: t.String(),
+            affilation: t.String()
+          })
+        )
+      })
+    }
+  )
+  .get('/create', ({ cookie: { name } }) => (name.value = 'Himari'))
+  .get(
+    '/update',
+    ({ cookie: { name } }) => {
+      name.value = 'seminar: Rio'
+      name.value = 'seminar: Himari'
+      name.maxAge = 86400
+
+      return name.value
+    },
+    {
+      cookie: t.Cookie({
+        name: t.Optional(t.String())
+      })
+    }
+  )
+  .listen(3000)
+```
+
+## Signed cookies
+
+Sign cookies to prevent tampering:
+
+```typescript
+const app = new Elysia({
+  cookie: {
+    secrets: 'my-secret-key',
+    sign: ['sessionId', 'userId']  // Sign specific cookies
+  }
+})
+  .get('/login', ({ cookie: { sessionId } }) => {
+    sessionId.value = generateSessionId()
+    // Cookie is automatically signed
+    return 'Logged in'
+  })
+  .listen(3000)
+```
+
+### Sign all cookies
+
+```typescript
+const app = new Elysia({
+  cookie: {
+    secrets: 'my-secret-key',
+    sign: true  // Sign all cookies
+  }
+})
+```
+
+## Cookie rotation
+
+Implement key rotation for enhanced security (`src/cookies.ts:124-136`):
+
+```typescript
+const app = new Elysia({
+  cookie: {
+    secrets: [
+      'new-secret-key',     // Primary key for signing
+      'old-secret-key',     // Backup key for verification
+      null                   // Allow unsigned for transition
+    ]
+  }
+})
+  .listen(3000)
+```
+
+## Cookie validation
+
+Validate cookie values with schemas:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .get('/preferences', ({ cookie }) => {
+    return cookie.preferences.value
+  }, {
+    cookie: t.Cookie({
+      preferences: t.Object({
+        theme: t.Union([t.Literal('light'), t.Literal('dark')]),
+        language: t.String(),
+        notifications: t.Boolean()
+      })
+    })
+  })
+  .listen(3000)
+```
+
+## Cookie methods
+
+From `src/cookies.ts:308-339`:
+
+### update()
+
+Merge new values with existing cookie configuration:
+
+```typescript
+cookie.session.update({
+  maxAge: 3600,
+  httpOnly: true
+})
+```
+
+### set()
+
+Replace entire cookie configuration:
+
+```typescript
+cookie.session.set({
+  value: 'new-session-id',
+  maxAge: 7200,
+  httpOnly: true,
+  secure: true
+})
+```
+
+### remove()
+
+Delete a cookie (`src/cookies.ts:329-338`):
+
+```typescript
+const app = new Elysia()
+  .get('/logout', ({ cookie: { session } }) => {
+    session.remove()
+    return 'Logged out'
+  })
+  .listen(3000)
+```
+
+## Complex cookie values
+
+Store objects and arrays in cookies:
+
+```typescript
+const app = new Elysia()
+  .get('/cart/add', ({ cookie: { cart } }) => {
+    const items = cart.value ?? []
+    items.push({ id: 1, name: 'Product' })
+    cart.value = items
+    
+    return 'Added to cart'
+  })
+  .get('/cart', ({ cookie: { cart } }) => {
+    return cart.value ?? []
+  })
+  .listen(3000)
+```
+
+Objects and arrays are automatically serialized to JSON.
+
+## Cookie security best practices
+
+```typescript
+const app = new Elysia({
+  cookie: {
+    secrets: process.env.COOKIE_SECRET!,
+    sign: true,
+    httpOnly: true,      // Prevent XSS attacks
+    secure: true,        // HTTPS only
+    sameSite: 'strict',  // CSRF protection
+    path: '/'
+  }
+})
+  .get('/session', ({ cookie: { session } }) => {
+    session.value = generateSecureSession()
+    session.maxAge = 3600  // 1 hour
+    
+    return 'Session created'
+  })
+  .listen(3000)
+```
+
+## Cookie priority
+
+Set cookie priority for better control (`src/cookies.ts:72-83`):
+
+```typescript
+const app = new Elysia()
+  .get('/cookie', ({ cookie: { important } }) => {
+    important.value = 'critical-data'
+    important.priority = 'high'  // 'low' | 'medium' | 'high'
+    
+    return 'Cookie set'
+  })
+  .listen(3000)
+```
+
+## Partitioned cookies
+
+Use partitioned cookies for third-party contexts (`src/cookies.ts:86-94`):
+
+```typescript
+const app = new Elysia()
+  .get('/embed', ({ cookie: { tracking } }) => {
+    tracking.value = 'embed-id'
+    tracking.partitioned = true
+    tracking.secure = true
+    
+    return 'Tracking cookie set'
+  })
+  .listen(3000)
+```
+
+## Real-world authentication example
+
+```typescript
+import { Elysia, t } from 'elysia'
+import { sign, verify } from 'jsonwebtoken'
+
+const JWT_SECRET = process.env.JWT_SECRET!
+
+const app = new Elysia({
+  cookie: {
+    secrets: process.env.COOKIE_SECRET!,
+    sign: ['auth'],
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict'
+  }
+})
+  .post('/login', ({ body, cookie: { auth } }) => {
+    // Validate credentials
+    if (!validateCredentials(body.username, body.password)) {
+      return { error: 'Invalid credentials' }
+    }
+    
+    // Create JWT
+    const token = sign(
+      { userId: body.username },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    )
+    
+    // Set signed cookie
+    auth.value = token
+    auth.maxAge = 604800  // 7 days
+    
+    return { success: true }
+  }, {
+    body: t.Object({
+      username: t.String(),
+      password: t.String()
+    })
+  })
+  
+  .get('/profile', ({ cookie: { auth }, error }) => {
+    if (!auth.value) {
+      return error(401, 'Not authenticated')
+    }
+    
+    try {
+      const payload = verify(auth.value, JWT_SECRET)
+      return { user: payload }
+    } catch {
+      return error(401, 'Invalid token')
+    }
+  })
+  
+  .post('/logout', ({ cookie: { auth } }) => {
+    auth.remove()
+    return { success: true }
+  })
+  
+  .listen(3000)
+```
+
+## Session management
+
+```typescript
+import { Elysia } from 'elysia'
+
+interface Session {
+  userId: string
+  createdAt: number
+  lastActivity: number
+}
+
+const app = new Elysia({
+  cookie: {
+    secrets: process.env.COOKIE_SECRET!,
+    sign: ['sessionId']
+  }
+})
+  .state('sessions', new Map<string, Session>())
+  
+  .derive(({ cookie, store }) => {
+    const sessionId = cookie.sessionId.value
+    const session = sessionId ? store.sessions.get(sessionId) : null
+    
+    return { session }
+  })
+  
+  .post('/login', ({ body, cookie, store }) => {
+    const sessionId = generateId()
+    const session: Session = {
+      userId: body.userId,
+      createdAt: Date.now(),
+      lastActivity: Date.now()
+    }
+    
+    store.sessions.set(sessionId, session)
+    cookie.sessionId.value = sessionId
+    cookie.sessionId.maxAge = 86400  // 24 hours
+    
+    return { success: true }
+  })
+  
+  .get('/protected', ({ session, error }) => {
+    if (!session) {
+      return error(401, 'Not authenticated')
+    }
+    
+    return { data: 'Protected content' }
+  })
+  
+  .post('/logout', ({ cookie, store, session }) => {
+    if (session) {
+      const sessionId = cookie.sessionId.value!
+      store.sessions.delete(sessionId)
+    }
+    cookie.sessionId.remove()
+    
+    return { success: true }
+  })
+  
+  .listen(3000)
+```
+
+<Tip>
+Cookies are automatically parsed from the `Cookie` header and serialized to `Set-Cookie` headers. You don't need to manually parse or format cookie strings.
+</Tip>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Always use secrets in production">
+    Sign cookies with a strong secret key to prevent tampering. Store secrets in environment variables.
+  </Accordion>
+  
+  <Accordion title="Set appropriate security flags">
+    Use `httpOnly` to prevent XSS, `secure` for HTTPS-only, and `sameSite` to prevent CSRF attacks.
+  </Accordion>
+  
+  <Accordion title="Implement key rotation">
+    Use an array of secrets to rotate keys without invalidating existing cookies.
+  </Accordion>
+  
+  <Accordion title="Set reasonable expiration">
+    Use `maxAge` or `expires` to limit cookie lifetime. Sessions should be shorter than persistent cookies.
+  </Accordion>
+  
+  <Accordion title="Validate cookie values">
+    Use schema validation to ensure cookie values match expected types and formats.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+Never store sensitive data in unsigned cookies. Always sign cookies containing authentication tokens or personal information.
+</Warning>

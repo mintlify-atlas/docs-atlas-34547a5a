@@ -1,0 +1,416 @@
+---
+title: Context object
+description: Learn about the context object in Elysia.js handlers
+---
+
+The context object is passed to every route handler and lifecycle hook in Elysia. It contains all the information and utilities needed to handle a request.
+
+## Overview
+
+The context object provides access to:
+
+- Request data (body, params, query, headers)
+- Response configuration (status, headers, cookies)
+- Server utilities (redirect, status helpers)
+- Custom decorators and state
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .get('/example', (context) => {
+    // Access all context properties
+    const { body, params, query, headers, set, request } = context
+    
+    return { message: 'Success' }
+  })
+```
+
+## Request properties
+
+### body
+
+The parsed request body:
+
+```typescript
+app.post('/users', ({ body }) => {
+  // body is automatically parsed based on Content-Type
+  return { created: body }
+})
+
+// With validation
+import { t } from 'elysia'
+
+app.post('/users', ({ body }) => {
+  const { name, email } = body
+  return { id: 1, name, email }
+}, {
+  body: t.Object({
+    name: t.String(),
+    email: t.String()
+  })
+})
+```
+
+<Note>
+The body is parsed automatically based on the `Content-Type` header. Supported types include JSON, form data, and text.
+</Note>
+
+### params
+
+URL path parameters:
+
+```typescript
+app.get('/users/:id', ({ params }) => {
+  return { userId: params.id }
+})
+
+app.get('/posts/:postId/comments/:commentId', ({ params }) => {
+  const { postId, commentId } = params
+  return { postId, commentId }
+})
+```
+
+### query
+
+Query string parameters:
+
+```typescript
+app.get('/search', ({ query }) => {
+  const { q, limit = '10', offset = '0' } = query
+  return { query: q, limit, offset }
+})
+// GET /search?q=elysia&limit=20
+```
+
+### headers
+
+Request headers:
+
+```typescript
+app.get('/api/data', ({ headers }) => {
+  const contentType = headers['content-type']
+  const auth = headers['authorization']
+  
+  return { contentType, auth }
+})
+```
+
+### cookie
+
+Request cookies:
+
+```typescript
+app.get('/profile', ({ cookie }) => {
+  const sessionId = cookie.sessionId?.value
+  
+  return { sessionId }
+})
+```
+
+### request
+
+The raw `Request` object:
+
+```typescript
+app.get('/info', ({ request }) => {
+  return {
+    url: request.url,
+    method: request.method,
+    headers: Object.fromEntries(request.headers)
+  }
+})
+```
+
+### path
+
+The actual URL path from the request:
+
+```typescript
+app.get('/users/:id', ({ path }) => {
+  return { path } // "/users/123"
+})
+```
+
+### route
+
+The registered route pattern:
+
+```typescript
+app.get('/users/:id', ({ route }) => {
+  return { route } // "/users/:id"
+})
+```
+
+## Response configuration
+
+### set
+
+Configure the response:
+
+```typescript
+app.get('/example', ({ set }) => {
+  // Set status code
+  set.status = 201
+  
+  // Set headers
+  set.headers['Cache-Control'] = 'max-age=3600'
+  set.headers['X-Custom-Header'] = 'value'
+  
+  return { message: 'Created' }
+})
+```
+
+#### set.status
+
+Set the HTTP status code:
+
+```typescript
+app.post('/users', ({ set }) => {
+  set.status = 201
+  return { created: true }
+})
+
+app.get('/error', ({ set }) => {
+  set.status = 404
+  return { error: 'Not found' }
+})
+```
+
+#### set.headers
+
+Set response headers:
+
+```typescript
+app.get('/api/data', ({ set }) => {
+  set.headers['Content-Type'] = 'application/json'
+  set.headers['Cache-Control'] = 'no-cache'
+  set.headers['X-API-Version'] = '1.0'
+  
+  return { data: 'value' }
+})
+```
+
+#### set.redirect
+
+<Warning>
+This property is deprecated. Use the `redirect` function instead.
+</Warning>
+
+```typescript
+// Don't use
+app.get('/old', ({ set }) => {
+  set.redirect = '/new'
+})
+
+// Use instead
+app.get('/old', ({ redirect }) => {
+  return redirect('/new')
+})
+```
+
+### status
+
+Type-safe status code setter:
+
+```typescript
+app.get('/users/:id', async ({ params, status }) => {
+  const user = await findUser(params.id)
+  
+  if (!user) {
+    return status(404, { error: 'User not found' })
+  }
+  
+  return status(200, user)
+})
+
+app.post('/users', ({ body, status }) => {
+  const user = createUser(body)
+  return status(201, user)
+})
+```
+
+### redirect
+
+Redirect to another URL:
+
+```typescript
+app.get('/old-path', ({ redirect }) => {
+  return redirect('/new-path')
+})
+
+app.get('/external', ({ redirect }) => {
+  return redirect('https://example.com')
+})
+
+// With status code (default is 302)
+app.get('/permanent', ({ redirect }) => {
+  return redirect('/new-location', 301)
+})
+```
+
+## Server properties
+
+### server
+
+Access to the underlying server instance:
+
+```typescript
+app.get('/info', ({ server }) => {
+  return {
+    port: server?.port,
+    hostname: server?.hostname
+  }
+})
+```
+
+<Note>
+The `server` property is `null` until `.listen()` is called.
+</Note>
+
+## Custom properties
+
+### store
+
+Global application state:
+
+```typescript
+const app = new Elysia()
+  .state('version', '1.0.0')
+  .state('db', database)
+  .get('/info', ({ store }) => {
+    return { version: store.version }
+  })
+  .post('/users', async ({ body, store }) => {
+    const user = await store.db.users.create(body)
+    return user
+  })
+```
+
+### decorator
+
+Custom utilities and helpers:
+
+```typescript
+const app = new Elysia()
+  .decorate('getDate', () => new Date())
+  .decorate('log', console.log)
+  .get('/time', ({ getDate }) => {
+    return { time: getDate() }
+  })
+```
+
+### derive
+
+Derived properties from the request:
+
+```typescript
+const app = new Elysia()
+  .derive(({ headers }) => {
+    return {
+      auth: headers['authorization']?.split(' ')[1]
+    }
+  })
+  .get('/protected', ({ auth }) => {
+    if (!auth) return { error: 'Unauthorized' }
+    return { auth }
+  })
+```
+
+### resolve
+
+Lazy-computed properties:
+
+```typescript
+const app = new Elysia()
+  .resolve(({ headers }) => {
+    return {
+      user: async () => {
+        const token = headers['authorization']
+        return await getUserFromToken(token)
+      }
+    }
+  })
+  .get('/profile', async ({ user }) => {
+    return await user()
+  })
+```
+
+## Type safety
+
+Elysia provides full type inference for the context:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .state('counter', 0)
+  .decorate('increment', (n: number) => n + 1)
+  .get('/count', ({ store, increment }) => {
+    // store.counter is typed as number
+    // increment is typed as (n: number) => number
+    
+    store.counter = increment(store.counter)
+    return { count: store.counter }
+  })
+```
+
+## Destructuring
+
+Commonly, you'll destructure just the properties you need:
+
+```typescript
+app.get('/users/:id', async ({ params, store, status }) => {
+  const user = await store.db.users.findById(params.id)
+  
+  if (!user) {
+    return status(404, { error: 'Not found' })
+  }
+  
+  return user
+})
+```
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Destructure only what you need">
+    Only destructure the context properties you actually use. This makes your code cleaner and easier to understand.
+    
+    ```typescript
+    // Good
+    app.get('/users', ({ store }) => store.users)
+    
+    // Avoid
+    app.get('/users', (context) => context.store.users)
+    ```
+  </Accordion>
+  
+  <Accordion title="Use type validation">
+    Always validate request data with schemas to ensure type safety:
+    
+    ```typescript
+    app.post('/users', ({ body }) => body, {
+      body: t.Object({
+        name: t.String(),
+        email: t.String()
+      })
+    })
+    ```
+  </Accordion>
+  
+  <Accordion title="Leverage derive and resolve">
+    Use `derive` for synchronous derived values and `resolve` for async operations.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Lifecycle" icon="arrows-spin" href="/concepts/lifecycle">
+    Learn about lifecycle hooks
+  </Card>
+  <Card title="Validation" icon="shield-check" href="/concepts/validation">
+    Validate request data with schemas
+  </Card>
+</CardGroup>

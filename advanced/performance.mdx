@@ -1,0 +1,506 @@
+---
+title: "Performance"
+description: "Optimize Elysia applications for maximum throughput and minimal latency"
+---
+
+Elysia is designed for extreme performance, leveraging Bun's capabilities and advanced optimization techniques. This guide covers performance optimization strategies and best practices.
+
+## Performance features
+
+Elysia achieves high performance through:
+
+- **Ahead-of-Time (AOT) compilation** - Pre-compile handlers and schemas
+- **Dynamic code generation** - Generate optimized request handlers
+- **Static route optimization** - Bypass routing for static responses
+- **Schema compilation** - Pre-compile validation functions
+- **Native response handling** - Direct runtime integration
+
+## Ahead-of-Time compilation
+
+Enable AOT to pre-compile handlers before serving requests:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia({
+  aot: true // Enable AOT compilation
+})
+  .get('/', () => 'Hello')
+  .listen(3000)
+```
+
+AOT compilation provides:
+- Faster startup time
+- Reduced memory usage
+- Optimized handler execution
+- Better tree-shaking
+
+### Precompilation options
+
+Fine-tune precompilation:
+
+```typescript
+const app = new Elysia({
+  precompile: {
+    compose: true,  // Compile request handlers
+    schema: true    // Compile schema validators
+  }
+})
+```
+
+## Dynamic code generation
+
+Elysia generates optimized request handlers at runtime:
+
+```typescript
+// From compose.ts - simplified example
+const composeHandler = (route) => {
+  let fnLiteral = ''
+  
+  // Parse query if needed
+  if (route.schema.query) {
+    fnLiteral += 'const query = parseQuery(request.url)\n'
+  }
+  
+  // Parse body if needed
+  if (route.schema.body) {
+    fnLiteral += 'const body = await request.json()\n'
+  }
+  
+  // Call handler
+  fnLiteral += 'return handler({ query, body })'
+  
+  return new Function('request', 'handler', fnLiteral)
+}
+```
+
+This eliminates unnecessary operations for each route:
+
+```typescript
+// Route without body parsing - no JSON overhead
+.get('/hello', () => 'Hello')
+
+// Route with body - optimized parsing
+.post('/users', ({ body }) => body, {
+  body: t.Object({ name: t.String() })
+})
+```
+
+## Static route optimization
+
+Static responses bypass the entire request pipeline:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia({
+  aot: true,
+  nativeStaticResponse: true // Enable native static optimization
+})
+  .get('/static', 'Static response') // Compiled to static Response
+  .get('/json', { data: 'value' })   // Compiled to static Response
+  .listen(3000)
+```
+
+With Bun's system router:
+
+```typescript
+// From adapter/bun/index.ts
+Bun.serve({
+  routes: {
+    '/static': new Response('Static response'),
+    '/api': handlerFunction
+  },
+  fetch: app.fetch
+})
+```
+
+Static routes are served directly by the runtime, bypassing Elysia entirely.
+
+## Schema compilation
+
+Pre-compile schema validators:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const UserSchema = t.Object({
+  name: t.String({ minLength: 1 }),
+  email: t.String({ format: 'email' }),
+  age: t.Number({ minimum: 0 })
+})
+
+const app = new Elysia({
+  precompile: { schema: true }
+})
+  .post('/users', ({ body }) => body, {
+    body: UserSchema
+  })
+```
+
+Compiled validators are significantly faster than runtime validation.
+
+## Response optimization
+
+### Native responses
+
+Return `Response` objects directly:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  // Fast: Direct Response
+  .get('/fast', () => new Response('Hello'))
+  
+  // Slower: Requires serialization
+  .get('/slow', () => 'Hello')
+  
+  // Optimized JSON
+  .get('/json', () => 
+    new Response(
+      JSON.stringify({ data: 'value' }),
+      { headers: { 'content-type': 'application/json' } }
+    )
+  )
+```
+
+### Reusable responses
+
+Cache static responses:
+
+```typescript
+const cachedResponse = new Response(
+  JSON.stringify({ status: 'ok' }),
+  { headers: { 'content-type': 'application/json' } }
+)
+
+const app = new Elysia()
+  .get('/health', () => cachedResponse.clone())
+```
+
+## Routing optimization
+
+### System router
+
+Use runtime's native router when available:
+
+```typescript
+const app = new Elysia({
+  aot: true,
+  systemRouter: true // Use Bun.serve routes
+})
+```
+
+### Route organization
+
+Organize routes for optimal lookup:
+
+```typescript
+// Good: Flat structure
+app
+  .get('/users', getUsers)
+  .get('/posts', getPosts)
+  .get('/comments', getComments)
+
+// Avoid: Deeply nested groups (adds overhead)
+app
+  .group('/api', app =>
+    app.group('/v1', app =>
+      app.group('/users', app =>
+        app.get('/', getUsers)
+      )
+    )
+  )
+```
+
+## Memory optimization
+
+### Schema reuse
+
+Reuse schema definitions:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const UserSchema = t.Object({
+  name: t.String(),
+  email: t.String()
+})
+
+const app = new Elysia()
+  .model('user', UserSchema) // Define once
+  .post('/users', ({ body }) => body, {
+    body: 'user' // Reference by name
+  })
+  .put('/users/:id', ({ body }) => body, {
+    body: 'user' // Reuse schema
+  })
+```
+
+### Decorator efficiency
+
+Limit decorator scope:
+
+```typescript
+// Good: Scoped decorators
+app.group('/api', app =>
+  app
+    .decorate('db', database) // Only for /api routes
+    .get('/users', ({ db }) => db.users.findAll())
+)
+
+// Avoid: Global decorators when not needed
+app
+  .decorate('db', database) // Available to all routes
+  .get('/health', () => 'OK') // Doesn't need db
+```
+
+## Request parsing
+
+### Conditional parsing
+
+Only parse what you need:
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  // No parsing overhead
+  .get('/hello', () => 'Hello')
+  
+  // Parse JSON only when schema present
+  .post('/users', ({ body }) => body, {
+    body: t.Object({ name: t.String() })
+  })
+  
+  // Parse query only when used
+  .get('/search', ({ query }) => query, {
+    query: t.Object({ q: t.String() })
+  })
+```
+
+### Streaming large bodies
+
+Use streams for large payloads:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .post('/upload', async ({ request }) => {
+    const stream = request.body
+    // Process stream without loading entire body
+    return 'Processing'
+  })
+```
+
+## WebSocket optimization
+
+### Binary messages
+
+Use binary instead of JSON when possible:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .ws('/binary', {
+    message(ws, message) {
+      // Binary messages are faster
+      if (message instanceof ArrayBuffer) {
+        ws.send(message)
+      }
+    }
+  })
+  .ws('/json', {
+    message(ws, message) {
+      // JSON has serialization overhead
+      ws.send(JSON.stringify({ data: message }))
+    }
+  })
+```
+
+### Backpressure handling
+
+Handle backpressure properly:
+
+```typescript
+app.ws('/stream', {
+  message(ws, message) {
+    // Check if ready to send
+    if (ws.data.ready) {
+      ws.send(message)
+    }
+  },
+  drain(ws) {
+    // Socket is ready for more data
+    ws.data.ready = true
+  }
+})
+```
+
+## Benchmarking
+
+### Built-in benchmarking
+
+Use tracing for performance measurement:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .trace(async ({ onHandle }) => {
+    const handler = await onHandle()
+    handler.onStop(({ elapsed, name }) => {
+      if (elapsed > 100) {
+        console.warn(`Slow handler "${name}": ${elapsed}ms`)
+      }
+    })
+  })
+  .get('/slow', async () => {
+    await Bun.sleep(200)
+    return 'Done'
+  })
+```
+
+### Load testing
+
+Test with realistic workloads:
+
+```bash
+# Using autocannon
+npx autocannon -c 100 -d 30 http://localhost:3000
+
+# Using wrk
+wrk -t 12 -c 400 -d 30s http://localhost:3000
+```
+
+## Production optimizations
+
+### Environment configuration
+
+```typescript
+import { Elysia } from 'elysia'
+
+const isProduction = process.env.NODE_ENV === 'production'
+
+const app = new Elysia({
+  // Production optimizations
+  aot: isProduction,
+  precompile: isProduction,
+  nativeStaticResponse: isProduction,
+  systemRouter: isProduction,
+  
+  // Development features
+  analytic: !isProduction
+})
+```
+
+### Compression
+
+Enable compression for responses:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .onAfterHandle(({ response, set }) => {
+    const size = JSON.stringify(response).length
+    
+    if (size > 1024) {
+      // Enable compression for large responses
+      set.headers['content-encoding'] = 'gzip'
+    }
+  })
+```
+
+### Keep-alive connections
+
+Configure connection pooling:
+
+```typescript
+import { Elysia } from 'elysia'
+
+const app = new Elysia()
+  .listen({
+    port: 3000,
+    // Bun.serve options
+    idleTimeout: 30,      // Timeout for idle connections
+    reusePort: true,      // Enable SO_REUSEPORT
+    development: false    // Disable dev mode overhead
+  })
+```
+
+## Common pitfalls
+
+### Avoid synchronous blocking
+
+```typescript
+// Bad: Blocks event loop
+.get('/block', () => {
+  const result = heavyComputation()
+  return result
+})
+
+// Good: Use async or Worker
+.get('/async', async () => {
+  const result = await heavyComputationAsync()
+  return result
+})
+```
+
+### Minimize middleware overhead
+
+```typescript
+// Bad: Global middleware for specific routes
+.onBeforeHandle(({ request }) => {
+  if (request.url.includes('/admin')) {
+    // Auth logic
+  }
+})
+
+// Good: Scoped middleware
+.group('/admin', app =>
+  app
+    .onBeforeHandle(() => {/* Auth logic */})
+    .get('/users', handler)
+)
+```
+
+### Cache expensive operations
+
+```typescript
+const cache = new Map()
+
+app.get('/expensive', async ({ query }) => {
+  const key = query.id
+  
+  if (cache.has(key)) {
+    return cache.get(key)
+  }
+  
+  const result = await expensiveOperation(key)
+  cache.set(key, result)
+  
+  return result
+})
+```
+
+## Performance checklist
+
+- [ ] Enable AOT compilation in production
+- [ ] Use static responses when possible
+- [ ] Pre-compile schemas with `precompile`
+- [ ] Return native `Response` objects for hot paths
+- [ ] Enable `systemRouter` on Bun
+- [ ] Scope decorators to routes that need them
+- [ ] Reuse schema definitions
+- [ ] Implement caching for expensive operations
+- [ ] Use binary WebSocket messages
+- [ ] Profile with tracing in development
+- [ ] Load test before deploying
+
+<Tip>
+For maximum performance, run benchmarks with `NODE_ENV=production` and `aot: true`.
+</Tip>
