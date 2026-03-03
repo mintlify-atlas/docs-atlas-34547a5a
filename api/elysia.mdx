@@ -195,6 +195,45 @@ Stop the server.
 app.stop()
 ```
 
+## Configuration
+
+### env()
+
+Validate environment variables at startup using a schema.
+
+```typescript
+app.env(
+  t.Object({
+    PORT: t.Number(),
+    DATABASE_URL: t.String()
+  })
+)
+```
+
+<ParamField path="schema" type="TObject" required>
+  TypeBox schema defining expected environment variables
+</ParamField>
+
+<ParamField path="env" type="Record<string, string>" default="process.env">
+  Environment object to validate (defaults to process.env)
+</ParamField>
+
+<Note>
+  The `env()` method throws an error if validation fails, preventing the server from starting with invalid configuration.
+</Note>
+
+```typescript
+import { Elysia, t } from 'elysia'
+
+const app = new Elysia()
+  .env(t.Object({
+    PORT: t.Number({ default: 3000 }),
+    NODE_ENV: t.String({ default: 'development' }),
+    DATABASE_URL: t.String()
+  }))
+  .listen(process.env.PORT)
+```
+
 ## State and decoration
 
 ### state()
@@ -342,6 +381,63 @@ app.guard({
 <ParamField path="run" type="(app: Elysia) => Elysia" required>
   Function that registers routes with the guard applied
 </ParamField>
+
+### mount()
+
+Mount another Elysia instance or request handler at a path.
+
+```typescript
+const api = new Elysia()
+  .get('/users', () => ['Alice', 'Bob'])
+
+app.mount('/api', api)
+```
+
+<ParamField path="path" type="string" optional>
+  Path prefix to mount at (defaults to '/')
+</ParamField>
+
+<ParamField path="handle" type="Elysia | (request: Request) => MaybePromise<Response>" required>
+  Elysia instance or request handler function to mount
+</ParamField>
+
+<ParamField path="detail" type="{ detail?: DocumentDecoration }" optional>
+  OpenAPI documentation metadata
+</ParamField>
+
+<Note>
+  Mounted instances run independently with their own lifecycle but inherit parent configuration.
+</Note>
+
+```typescript
+// Mount at root
+app.mount(externalHandler)
+
+// Mount with path prefix
+app.mount('/api/v1', apiV1Instance)
+
+// Mount external fetch handler
+app.mount('/external', (request) => {
+  return new Response('External handler')
+})
+```
+
+### handle()
+
+Get the compiled request handler function.
+
+```typescript
+const handler = app.handle
+const response = await handler(new Request('http://localhost/'))
+```
+
+<ResponseField name="return" type="(request: Request) => MaybePromise<Response>">
+  Compiled request handler function compatible with Web Standards
+</ResponseField>
+
+<Note>
+  Use `handle` when integrating Elysia with other frameworks or platforms that accept a fetch-compatible handler.
+</Note>
 
 ## Properties
 

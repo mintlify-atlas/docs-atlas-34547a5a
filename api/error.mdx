@@ -254,6 +254,73 @@ app
   .post('/json', ({ body }) => body)
 ```
 
+## InvalidFileType
+
+Thrown when file type validation fails for uploaded files.
+
+```typescript
+class InvalidFileType extends Error {
+  code: 'INVALID_FILE_TYPE'
+  status: 422
+  
+  constructor(
+    property: string,
+    expected: string | string[],
+    message?: string
+  )
+}
+```
+
+<ParamField path="property" type="string" required>
+  Property name that failed file type validation
+</ParamField>
+
+<ParamField path="expected" type="string | string[]" required>
+  Expected file type(s) (e.g., 'image/png' or ['image/jpeg', 'image/png'])
+</ParamField>
+
+<ParamField path="message" type="string">
+  Custom error message (defaults to `"{property}" has invalid file type`)
+</ParamField>
+
+<ResponseField name="code" type="'INVALID_FILE_TYPE'">
+  Error code identifier
+</ResponseField>
+
+<ResponseField name="status" type="422">
+  HTTP status code
+</ResponseField>
+
+<ResponseField name="property" type="string">
+  The property that failed validation
+</ResponseField>
+
+<ResponseField name="expected" type="string | string[]">
+  The expected file type(s)
+</ResponseField>
+
+```typescript
+import { Elysia, t, InvalidFileType } from 'elysia'
+
+app
+  .onError(({ code, error }) => {
+    if (code === 'INVALID_FILE_TYPE') {
+      return {
+        error: 'Invalid file type',
+        property: error.property,
+        expected: error.expected
+      }
+    }
+  })
+  .post('/upload', ({ body }) => body, {
+    body: t.Object({
+      image: t.File({
+        type: ['image/jpeg', 'image/png']
+      })
+    })
+  })
+```
+
 ## InvalidCookieSignature
 
 Thrown when cookie signature verification fails.
