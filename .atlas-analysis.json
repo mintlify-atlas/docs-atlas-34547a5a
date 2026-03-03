@@ -1,0 +1,146 @@
+{
+  "projectType": "framework",
+  "projectName": "Elysia",
+  "projectDescription": "Ergonomic Framework for Humans - TypeScript web framework with end-to-end type safety, supercharged by Bun",
+  "theme": "palm",
+  "primaryColor": "#8b5cf6",
+  "lightColor": "#a78bfa",
+  "darkColor": "#7c3aed",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/routing",
+              "concepts/handlers",
+              "concepts/context",
+              "concepts/lifecycle",
+              "concepts/validation"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/plugins",
+              "features/state-decorator",
+              "features/guard-group",
+              "features/websocket",
+              "features/error-handling",
+              "features/schema-validation",
+              "features/cookies"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/type-safety",
+              "advanced/adapters",
+              "advanced/macros",
+              "advanced/tracing",
+              "advanced/performance"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/migration",
+              "guides/testing",
+              "guides/deployment"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/elysia",
+              "api/context",
+              "api/lifecycle-hooks"
+            ]
+          },
+          {
+            "group": "HTTP Methods",
+            "pages": [
+              "api/http-methods",
+              "api/route-handlers"
+            ]
+          },
+          {
+            "group": "Validation",
+            "pages": [
+              "api/schema-types",
+              "api/validation"
+            ]
+          },
+          {
+            "group": "WebSocket",
+            "pages": [
+              "api/websocket"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/utils",
+              "api/error",
+              "api/adapters"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "End-to-end type safety with TypeScript",
+    "Plugin system for extensibility",
+    "Schema validation with multiple libraries (TypeBox, Zod, Valibot)",
+    "WebSocket support with type safety",
+    "Lifecycle hooks (onRequest, onResponse, onError, etc.)",
+    "State management and dependency injection",
+    "Guard and group for route organization",
+    "Multiple runtime adapters (Bun, Cloudflare Workers, Web Standard)",
+    "High performance optimized for Bun",
+    "Eden for end-to-end type-safe client"
+  ],
+  "publicApiSurface": [
+    "Elysia",
+    "t (type-system)",
+    "get/post/put/delete/patch/options/all/head",
+    "ws",
+    "use",
+    "group",
+    "guard",
+    "state",
+    "decorate",
+    "derive",
+    "resolve",
+    "model",
+    "macro",
+    "onRequest",
+    "onError",
+    "onResponse",
+    "onBeforeHandle",
+    "onAfterHandle",
+    "listen",
+    "handle",
+    "mount",
+    "Context",
+    "ValidationError",
+    "NotFoundError",
+    "InternalServerError"
+  ]
+}
